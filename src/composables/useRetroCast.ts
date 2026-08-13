@@ -36,23 +36,22 @@ export function useRetroCast() {
 
   // States
   const connectionStatus = ref<'disconnected' | 'connecting' | 'connected'>('disconnected')
-  const transferStatus = ref<'idle' | 'sending' | 'receiving' | 'assembling' | 'completed' | 'error'>('idle')
-  const transferProgress = ref(0)
   const errorMessage = ref<string | null>(null)
 
-  // Sender input states
-  const audioFile = ref<File | null>(null)
-  const audioInput = ref<HTMLInputElement | null>(null)
-  const title = ref('')
-  const artist = ref('')
-
-  // Folder states
+  // Sender specific
   const localSongs = ref<File[]>([])
   const folderName = ref('')
+  const sharedManifest = ref<any[]>([])
+  const uploadProgress = ref<Record<number, number>>({})
+
+  // Receiver specific
+  const remoteManifest = ref<any[]>([])
+  const downloadProgress = ref<Record<number, number>>({})
+  const availableSongs = ref<Record<number, any>>({}) // fileIndex -> Song object
 
   // WebRTC and Firestore subscription instances
   let peerConnection: RTCPeerConnection | null = null
-  let dataChannel: RTCDataChannel | null = null
+  let controlChannel: RTCDataChannel | null = null
   let unsubscribeFirestore: (() => void) | null = null
   let connectionTimeoutId: any = null
 
@@ -71,35 +70,6 @@ export function useRetroCast() {
     if (connectionTimeoutId) {
       window.clearTimeout(connectionTimeoutId)
       connectionTimeoutId = null
-    }
-  }
-
-  // Chunks accumulators
-  const receivedChunks: ArrayBuffer[] = []
-  const fileHeader = ref<{ title: string; artist: string; totalSize: number; mimeType: string; totalChunks: number } | null>(null)
-  let chunksReceivedCount = 0
-
-  // Reset local states
-  const resetSenderForm = () => {
-    audioFile.value = null
-    title.value = ''
-    artist.value = ''
-    transferStatus.value = 'idle'
-    transferProgress.value = 0
-    errorMessage.value = null
-  }
-
-  const triggerAudioSelect = () => {
-    audioInput.value?.click()
-  }
-
-  const handleAudioSelect = (e: Event) => {
-    const target = e.target as HTMLInputElement
-    if (target.files && target.files.length > 0) {
-      const file = target.files[0]
-      audioFile.value = file
-      const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name
-      title.value = nameWithoutExt
     }
   }
 
@@ -136,37 +106,18 @@ export function useRetroCast() {
     }
   }
 
-  const selectLocalSong = (file: File) => {
-    audioFile.value = file
-    const nameWithoutExt = file.name.substring(0, file.name.lastIndexOf('.')) || file.name
-    title.value = nameWithoutExt
-    artist.value = 'Local Cast'
-    transferProgress.value = 0
-    transferStatus.value = 'idle'
-  }
-
   const changeFolder = () => {
     localSongs.value = []
     folderName.value = ''
-    audioFile.value = null
-    title.value = ''
-    artist.value = ''
-    transferProgress.value = 0
-    transferStatus.value = 'idle'
+    sharedManifest.value = []
+    uploadProgress.value = {}
   }
 
-  // Clean up connections and listeners
   function cleanup() {
     clearConnectionTimeout()
     if (unsubscribeFirestore) {
       unsubscribeFirestore()
       unsubscribeFirestore = null
-    }
-    if (dataChannel) {
-      try {
-        dataChannel.close()
-      } catch (e) {}
-      dataChannel = null
     }
     if (peerConnection) {
       try {
@@ -174,18 +125,24 @@ export function useRetroCast() {
       } catch (e) {}
       peerConnection = null
     }
+    controlChannel = null
+    
+    // Clear Object URLs to prevent memory leaks
+    Object.values(availableSongs.value).forEach(song => {
+      if (song.audioUrl) URL.revokeObjectURL(song.audioUrl)
+    })
+    availableSongs.value = {}
+    downloadProgress.value = {}
+    remoteManifest.value = []
   }
 
   onUnmounted(() => {
     cleanup()
   })
 
-  // Watch role toggle to trigger cleanups and auto-start receiver if PC
   watch(role, (newRole) => {
     cleanup()
     errorMessage.value = null
-    transferProgress.value = 0
-    transferStatus.value = 'idle'
     connectionStatus.value = 'disconnected'
     
     if (newRole === 'receiver') {
@@ -193,15 +150,22 @@ export function useRetroCast() {
     }
   }, { immediate: true })
 
-  // WebRTC PC (Receiver) Logic
+  // Trigger preload manager whenever current song changes
+  watch(() => playerStore.currentSong, () => {
+    if (role.value === 'receiver' && connectionStatus.value === 'connected' && remoteManifest.value.length > 0) {
+      managePreloading()
+    }
+  })
+
+  // ---------------------------------------------------------
+  // RECEIVER LOGIC
+  // ---------------------------------------------------------
   async function startReceiver() {
     cleanup()
     connectionStatus.value = 'connecting'
-    transferStatus.value = 'idle'
     errorMessage.value = null
 
     const uid = authStore.user?.uid
-    console.log('[RECEIVER/PC] uid:', uid, 'email:', authStore.user?.email, 'isInitialized:', authStore.isInitialized)
     if (!uid) {
       errorMessage.value = 'Debes iniciar sesión para conectar.'
       connectionStatus.value = 'disconnected'
@@ -209,21 +173,16 @@ export function useRetroCast() {
     }
 
     const sigDocRef = doc(db, 'users', uid, 'signaling', 'webrtc')
-
-    // Clear any leftover signaling document
     await deleteDoc(sigDocRef).catch(() => {})
 
-    // Listen to Firestore signaling document changes
     unsubscribeFirestore = onSnapshot(sigDocRef, async (snapshot) => {
       if (!snapshot.exists()) return
       const data = snapshot.data()
 
-      // 1. On Offer received
       if (data.offer && !peerConnection) {
         await createReceiverPeerConnection(data.offer, sigDocRef)
       }
 
-      // 2. On ICE Candidates received
       if (data.senderCandidates && peerConnection) {
         for (const candidate of data.senderCandidates) {
           try {
@@ -240,7 +199,6 @@ export function useRetroCast() {
     peerConnection = new RTCPeerConnection(ICE_SERVERS)
     startConnectionTimeout()
 
-    // Send local ICE candidates to sender
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
         await setDoc(sigDocRef, {
@@ -257,20 +215,49 @@ export function useRetroCast() {
         } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
           connectionStatus.value = 'disconnected'
           cleanup()
-          startReceiver() // Restart waiting mode
+          startReceiver() 
         }
       }
     }
 
-    // Bind DataChannel receiver
     peerConnection.ondatachannel = (event) => {
       const channel = event.channel
-      if (channel.label === 'audio-transfer') {
-        setupReceiverDataChannel(channel)
+      if (channel.label === 'control') {
+        controlChannel = channel
+        channel.onopen = () => {
+          connectionStatus.value = 'connected'
+          clearConnectionTimeout()
+        }
+        channel.onmessage = (e) => {
+          const msg = JSON.parse(e.data)
+          if (msg.type === 'manifest') {
+            remoteManifest.value = msg.data
+            const playlist = msg.data.map((m: any) => ({
+              id: `webrtc-${m.id}`,
+              title: m.title,
+              artist: m.artist,
+              audioUrl: '', 
+              coverUrl: null,
+              duration: 0,
+              favorite: false,
+              _webrtcIndex: m.id
+            }))
+            
+            // Clear signaling metadata document
+            const uid = authStore.user?.uid
+            if (uid) {
+              deleteDoc(doc(db, 'users', uid, 'signaling', 'webrtc')).catch(() => {})
+            }
+
+            // Load playlist into player
+            playerStore.loadSong(playlist[0], playlist)
+            // Immediately start preloading
+            managePreloading()
+          }
+        }
       }
     }
 
-    // Establish connection
     try {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(offerData))
       const answer = await peerConnection.createAnswer()
@@ -290,97 +277,104 @@ export function useRetroCast() {
     }
   }
 
-  function setupReceiverDataChannel(channel: RTCDataChannel) {
-    dataChannel = channel
-
-    channel.onopen = () => {
-      connectionStatus.value = 'connected'
-      transferStatus.value = 'idle'
-      clearConnectionTimeout()
+  function managePreloading() {
+    if (!peerConnection) return
+    const currentIndex = playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id)
+    if (currentIndex === -1) return
+    
+    const total = remoteManifest.value.length
+    const indicesToLoad = new Set<number>()
+    
+    // Window: -5 to +5
+    for (let i = -5; i <= 5; i++) {
+      let idx = currentIndex + i
+      if (total > 0) {
+        // Wrap around logic
+        if (idx < 0) idx = (idx % total) + total
+        if (idx >= total) idx = idx % total
+        indicesToLoad.add(idx)
+      }
     }
+    
+    // Request missing chunks
+    indicesToLoad.forEach(idx => {
+      const manifestItem = remoteManifest.value[idx]
+      if (!availableSongs.value[idx] && downloadProgress.value[idx] === undefined) {
+         requestFile(idx, manifestItem)
+      }
+    })
+    
+    // Free memory for songs outside the window
+    Object.keys(availableSongs.value).forEach(k => {
+      const idx = parseInt(k)
+      if (!indicesToLoad.has(idx)) {
+         URL.revokeObjectURL(availableSongs.value[idx].audioUrl)
+         delete availableSongs.value[idx]
+         delete downloadProgress.value[idx]
+         if (playerStore.playlist[idx]) {
+           playerStore.playlist[idx].audioUrl = ''
+         }
+      }
+    })
+  }
 
-    channel.onclose = () => {
-      connectionStatus.value = 'disconnected'
-      cleanup()
-      startReceiver() // Re-enter waiting mode
-    }
-
-    channel.onmessage = async (event) => {
-      if (typeof event.data === 'string') {
-        // Decode headers
-        try {
-          const message = JSON.parse(event.data)
-          if (message.type === 'header') {
-            fileHeader.value = message
-            receivedChunks.length = 0 // Clear array
-            chunksReceivedCount = 0
-            transferStatus.value = 'receiving'
-            transferProgress.value = 0
-          }
-        } catch (e) {
-          console.error('Header parsing error:', e)
+  function requestFile(idx: number, manifestItem: any) {
+    if (!peerConnection) return
+    downloadProgress.value[idx] = 0
+    const channel = peerConnection.createDataChannel(`file-${idx}`, { ordered: true })
+    
+    const receivedChunks: ArrayBuffer[] = []
+    let bytesReceived = 0
+    
+    channel.onmessage = (e) => {
+      receivedChunks.push(e.data)
+      bytesReceived += e.data.byteLength
+      downloadProgress.value[idx] = Math.min(100, Math.round((bytesReceived / manifestItem.totalSize) * 100))
+      
+      if (bytesReceived >= manifestItem.totalSize) {
+        const fileBlob = new Blob(receivedChunks, { type: manifestItem.mimeType })
+        const objectUrl = URL.createObjectURL(fileBlob)
+        
+        availableSongs.value[idx] = {
+           id: `webrtc-${idx}`,
+           title: manifestItem.title,
+           artist: manifestItem.artist,
+           audioUrl: objectUrl,
+           coverUrl: null,
+           duration: 0,
+           createdAt: new Date(),
+           favorite: false
         }
-      } else {
-        // Accumulate binary chunk data
-        if (fileHeader.value) {
-          receivedChunks.push(event.data)
-          chunksReceivedCount++
-          transferProgress.value = Math.min(100, Math.round((chunksReceivedCount / fileHeader.value.totalChunks) * 100))
-
-          if (chunksReceivedCount === fileHeader.value.totalChunks) {
-            transferStatus.value = 'assembling'
-            
-            const fileBlob = new Blob(receivedChunks, { type: fileHeader.value.mimeType })
-            const objectUrl = URL.createObjectURL(fileBlob)
-
-            // Load local song into the Pinia Audio Player Store
-            const localSong = {
-              id: 'webrtc-temp',
-              title: fileHeader.value.title,
-              artist: fileHeader.value.artist,
-              audioUrl: objectUrl,
-              coverUrl: null,
-              duration: 0,
-              createdAt: new Date(),
-              favorite: false
-            }
-
-            playerStore.loadSong(localSong as any)
-            
-            transferStatus.value = 'completed'
-            setTimeout(() => {
-              if (transferStatus.value === 'completed') {
-                transferStatus.value = 'idle'
-                transferProgress.value = 0
-              }
-            }, 4000)
-
-            // Clear signaling metadata document
-            const uid = authStore.user?.uid
-            if (uid) {
-              const sigDocRef = doc(db, 'users', uid, 'signaling', 'webrtc')
-              await deleteDoc(sigDocRef).catch(() => {})
-            }
-          }
+        
+        if (playerStore.playlist[idx]) {
+          playerStore.playlist[idx].audioUrl = objectUrl
         }
+        
+        // If this is the currently waiting song, play it
+        if (playerStore.currentSong?.id === `webrtc-${idx}` && playerStore.currentSong.audioUrl === '') {
+           playerStore.loadSong(playerStore.playlist[idx], playerStore.playlist)
+        }
+        
+        channel.close()
       }
     }
   }
 
-  // WebRTC Phone (Sender) Logic
+
+  // ---------------------------------------------------------
+  // SENDER LOGIC
+  // ---------------------------------------------------------
   async function startSender() {
-    if (!audioFile.value || !title.value || !artist.value) {
-      errorMessage.value = 'Por favor, complete todos los campos obligatorios.'
+    if (localSongs.value.length === 0) {
+      errorMessage.value = 'Por favor, selecciona una carpeta de música.'
       return
     }
 
     cleanup()
     connectionStatus.value = 'connecting'
-    transferStatus.value = 'idle'
     errorMessage.value = null
 
     const uid = authStore.user?.uid
-    console.log('[SENDER/CEL] uid:', uid, 'email:', authStore.user?.email, 'isInitialized:', authStore.isInitialized)
     if (!uid) {
       errorMessage.value = 'Debes iniciar sesión para conectar.'
       connectionStatus.value = 'disconnected'
@@ -418,11 +412,38 @@ export function useRetroCast() {
     peerConnection = new RTCPeerConnection(ICE_SERVERS)
     startConnectionTimeout()
 
-    // Create order-preserving transfer channel
-    const channel = peerConnection.createDataChannel('audio-transfer', {
-      ordered: true
-    })
-    setupSenderDataChannel(channel)
+    // 1. Control channel for JSON messages
+    controlChannel = peerConnection.createDataChannel('control', { ordered: true })
+    
+    controlChannel.onopen = () => {
+      connectionStatus.value = 'connected'
+      clearConnectionTimeout()
+      
+      // Send manifest
+      const manifest = localSongs.value.map((f, i) => ({
+        id: i,
+        title: f.name.substring(0, f.name.lastIndexOf('.')) || f.name,
+        artist: 'Local Cast',
+        totalSize: f.size,
+        mimeType: f.type || 'audio/mpeg'
+      }))
+      sharedManifest.value = manifest
+      controlChannel?.send(JSON.stringify({ type: 'manifest', data: manifest }))
+    }
+
+    controlChannel.onclose = () => {
+      connectionStatus.value = 'disconnected'
+      cleanup()
+    }
+
+    // 2. Listen for dynamically requested files
+    peerConnection.ondatachannel = (event) => {
+      const channel = event.channel
+      if (channel.label.startsWith('file-')) {
+        const fileId = parseInt(channel.label.split('-')[1])
+        sendFileChunks(fileId, channel)
+      }
+    }
 
     peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
@@ -451,128 +472,75 @@ export function useRetroCast() {
       await setDoc(sigDocRef, {
         offer: { type: offer.type, sdp: offer.sdp }
       }, { merge: true })
-      console.log('[SENDER/CEL] offer escrito OK en Firestore')
-
-} catch (err: any) {
-  console.error('[SENDER/CEL] FALLO al escribir offer:', err)
-      errorMessage.value = 'No se pudo iniciar la transmisión.'
+    } catch (err: any) {
+      console.error('[SENDER/CEL] FALLO al escribir offer:', err)
+      errorMessage.value = 'No se pudo iniciar la transmisión. Verifique reglas de Firebase.'
       cleanup()
       connectionStatus.value = 'disconnected'
     }
   }
 
-  function setupSenderDataChannel(channel: RTCDataChannel) {
-    dataChannel = channel
+  function sendFileChunks(fileId: number, channel: RTCDataChannel) {
+    const file = localSongs.value[fileId]
+    if (!file) return
+    
+    uploadProgress.value[fileId] = 0
 
     channel.onopen = () => {
-      connectionStatus.value = 'connected'
-      sendFile()
-      clearConnectionTimeout()
-    }
+      const reader = new FileReader()
+      reader.onload = async (e) => {
+        const buffer = e.target?.result as ArrayBuffer
+        if (!buffer) return
 
-    channel.onclose = () => {
-      connectionStatus.value = 'disconnected'
-      cleanup()
-    }
-  }
+        const chunkSize = 65536 // 64 KB
+        const totalSize = buffer.byteLength
+        let offset = 0
+        let bytesSent = 0
 
-  // Slice & transmit raw binary file
-  async function sendFile() {
-    if (!audioFile.value || !dataChannel || dataChannel.readyState !== 'open') {
-      errorMessage.value = 'Conexión cerrada. No se pudo iniciar el envío.'
-      return
-    }
+        function sendNextChunk() {
+          if (channel.readyState !== 'open') return
 
-    transferStatus.value = 'sending'
-    transferProgress.value = 0
-
-    const file = audioFile.value
-    const reader = new FileReader()
-
-    reader.onload = async (e) => {
-      const buffer = e.target?.result as ArrayBuffer
-      if (!buffer) {
-        errorMessage.value = 'Error al leer el archivo local.'
-        transferStatus.value = 'error'
-        return
-      }
-
-      const chunkSize = 65536 // 64 KB optimal chunk size
-      const totalSize = buffer.byteLength
-      const totalChunks = Math.ceil(totalSize / chunkSize)
-
-      // 1. Send file headers first
-      dataChannel?.send(JSON.stringify({
-        type: 'header',
-        title: title.value,
-        artist: artist.value,
-        totalSize: totalSize,
-        mimeType: file.type || 'audio/mpeg',
-        totalChunks: totalChunks
-      }))
-
-      // 2. Chunks Loop with strict congestion controls (bufferedAmount)
-      let offset = 0
-      let chunkIndex = 0
-
-      function sendNextChunk() {
-        if (!dataChannel || dataChannel.readyState !== 'open') return
-
-        // Yield/Pause if RTCDataChannel buffer is congested (max 64KB queued)
-        if (dataChannel.bufferedAmount > 65536) {
-          dataChannel.onbufferedamountlow = () => {
-            if (dataChannel) {
-              dataChannel.onbufferedamountlow = null
+          if (channel.bufferedAmount > 65536) {
+            channel.onbufferedamountlow = () => {
+              channel.onbufferedamountlow = null
               sendNextChunk()
             }
+            return
           }
-          return
+
+          if (offset < totalSize) {
+            const slice = buffer.slice(offset, offset + chunkSize)
+            channel.send(slice)
+            offset += chunkSize
+            bytesSent += slice.byteLength
+            uploadProgress.value[fileId] = Math.min(100, Math.round((bytesSent / totalSize) * 100))
+            
+            // Allow JS event loop to breathe
+            setTimeout(sendNextChunk, 1)
+          } else {
+            uploadProgress.value[fileId] = 100
+            // Channel closes automatically on receiver side once bytes received == totalSize
+          }
         }
 
-        if (offset < totalSize) {
-          const slice = buffer.slice(offset, offset + chunkSize)
-          dataChannel.send(slice)
-          offset += chunkSize
-          chunkIndex++
-          transferProgress.value = Math.min(100, Math.round((chunkIndex / totalChunks) * 100))
-
-          // Trigger next chunk (small delay to avoid JS thread blocking)
-          setTimeout(sendNextChunk, 1)
-        } else {
-          // Completed transfer successfully!
-          transferStatus.value = 'completed'
-          setTimeout(() => {
-            if (transferStatus.value === 'completed') {
-              resetSenderForm()
-            }
-          }, 4000)
-        }
+        sendNextChunk()
       }
-
-      sendNextChunk()
+      reader.readAsArrayBuffer(file)
     }
-
-    reader.readAsArrayBuffer(file)
   }
 
   return {
     role,
     connectionStatus,
-    transferStatus,
-    transferProgress,
     errorMessage,
-    audioFile,
-    audioInput,
-    title,
-    artist,
-    fileHeader,
     localSongs,
     folderName,
-    resetSenderForm,
-    triggerAudioSelect,
-    handleAudioSelect,
+    sharedManifest,
+    uploadProgress,
+    remoteManifest,
+    downloadProgress,
+    availableSongs,
     handleFolderSelect,
-    selectLocalSong,
     changeFolder,
     startReceiver,
     startSender,

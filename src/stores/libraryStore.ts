@@ -10,9 +10,11 @@ import {
   onSnapshot,
   doc,
   addDoc,
+  setDoc,
   deleteDoc,
   updateDoc,
-  serverTimestamp
+  serverTimestamp,
+  arrayUnion
 } from 'firebase/firestore'
 import {
   ref as storageRef,
@@ -22,36 +24,49 @@ import {
   deleteObject
 } from 'firebase/storage'
 
+export interface Playlist {
+  id: string
+  songs: any[]
+  createdAt: any
+}
+
 export const useLibraryStore = defineStore('library', () => {
   const authStore = useAuthStore()
 
   // Reactive State
   const songs = ref<Song[]>([])
+  const playlists = ref<Playlist[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // Real-time listener unsubscribe function holder
-  let unsubscribe: (() => void) | null = null
+  // Real-time listener unsubscribe function holders
+  let unsubscribeSongs: (() => void) | null = null
+  let unsubscribePlaylists: (() => void) | null = null
 
   // Watch for auth changes to bind/unbind Firestore collection listener
   watch(
     () => authStore.user,
     (newUser) => {
-      // Always unsubscribe from previous listeners on change
-      if (unsubscribe) {
-        unsubscribe()
-        unsubscribe = null
+      if (unsubscribeSongs) {
+        unsubscribeSongs()
+        unsubscribeSongs = null
+      }
+      if (unsubscribePlaylists) {
+        unsubscribePlaylists()
+        unsubscribePlaylists = null
       }
 
       if (newUser) {
         loading.value = true
-        const q = query(
+        
+        // Listen to songs
+        const qSongs = query(
           collection(db, 'users', newUser.uid, 'songs'),
           orderBy('createdAt', 'desc')
         )
 
-        unsubscribe = onSnapshot(
-          q,
+        unsubscribeSongs = onSnapshot(
+          qSongs,
           (snapshot) => {
             songs.value = snapshot.docs.map((docEl) => {
               const data = docEl.data()
@@ -74,9 +89,31 @@ export const useLibraryStore = defineStore('library', () => {
             loading.value = false
           }
         )
+
+        // Listen to playlists
+        const qPlaylists = query(
+          collection(db, 'users', newUser.uid, 'playlists'),
+          orderBy('createdAt', 'desc')
+        )
+
+        unsubscribePlaylists = onSnapshot(
+          qPlaylists,
+          (snapshot) => {
+            playlists.value = snapshot.docs.map((docEl) => {
+              return {
+                id: docEl.id,
+                songs: docEl.data().songs || [],
+                createdAt: docEl.data().createdAt
+              } as Playlist
+            })
+          },
+          (err) => {
+            console.error('Firestore playlists listener error:', err)
+          }
+        )
       } else {
-        // Clear songs list upon logout
         songs.value = []
+        playlists.value = []
         loading.value = false
         error.value = null
       }
@@ -94,18 +131,14 @@ export const useLibraryStore = defineStore('library', () => {
     onProgress?: (progress: number) => void
   ) {
     const uid = authStore.user?.uid
-    if (!uid) {
-      throw new Error('Debe iniciar sesión para añadir canciones.')
-    }
+    if (!uid) throw new Error('Debe iniciar sesión para añadir canciones.')
 
     loading.value = true
     error.value = null
 
     try {
-      // 1. Upload audio file to Storage using uploadBytesResumable
       const audioPath = `users/${uid}/audio/${Date.now()}_${audioFile.name}`
       const audioFileRef = storageRef(storage, audioPath)
-
       const uploadTask = uploadBytesResumable(audioFileRef, audioFile)
 
       const audioSnapshot = await new Promise<any>((resolve, reject) => {
@@ -113,22 +146,15 @@ export const useLibraryStore = defineStore('library', () => {
           'state_changed',
           (snapshot) => {
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-            if (onProgress) {
-              onProgress(progress)
-            }
+            if (onProgress) onProgress(progress)
           },
-          (err) => {
-            reject(err)
-          },
-          () => {
-            resolve(uploadTask.snapshot)
-          }
+          reject,
+          () => resolve(uploadTask.snapshot)
         )
       })
 
       const audioUrl = await getDownloadURL(audioSnapshot.ref)
 
-      // 2. Upload cover art file to Storage if provided
       let coverUrl: string | null = null
       if (coverFile) {
         const coverPath = `users/${uid}/covers/${Date.now()}_${coverFile.name}`
@@ -137,7 +163,6 @@ export const useLibraryStore = defineStore('library', () => {
         coverUrl = await getDownloadURL(coverSnapshot.ref)
       }
 
-      // 3. Save song metadata to Firestore under user path
       await addDoc(collection(db, 'users', uid, 'songs'), {
         title,
         artist,
@@ -149,7 +174,7 @@ export const useLibraryStore = defineStore('library', () => {
       })
     } catch (err: any) {
       console.error('Error adding song to library:', err)
-      error.value = 'Ocurrió un error al subir la canción a la biblioteca.'
+      error.value = 'Ocurrió un error al subir la canción.'
       throw err
     } finally {
       loading.value = false
@@ -158,39 +183,25 @@ export const useLibraryStore = defineStore('library', () => {
 
   async function deleteSong(songId: string) {
     const uid = authStore.user?.uid
-    if (!uid) {
-      throw new Error('Debe iniciar sesión para eliminar canciones.')
-    }
+    if (!uid) throw new Error('Debe iniciar sesión para eliminar canciones.')
 
     loading.value = true
     error.value = null
 
     try {
-      // 1. Retrieve the local song properties to delete associated Storage files
       const song = songs.value.find((s) => s.id === songId)
       if (song) {
-        // Delete audio from Storage
         if (song.audioUrl) {
           try {
-            const audioFileRef = storageRef(storage, song.audioUrl)
-            await deleteObject(audioFileRef)
-          } catch (e) {
-            console.warn('Could not delete audio file from Storage:', e)
-          }
+            await deleteObject(storageRef(storage, song.audioUrl))
+          } catch (e) { }
         }
-
-        // Delete cover from Storage
         if (song.coverUrl) {
           try {
-            const coverFileRef = storageRef(storage, song.coverUrl)
-            await deleteObject(coverFileRef)
-          } catch (e) {
-            console.warn('Could not delete cover file from Storage:', e)
-          }
+            await deleteObject(storageRef(storage, song.coverUrl))
+          } catch (e) { }
         }
       }
-
-      // 2. Delete Firestore metadata record
       await deleteDoc(doc(db, 'users', uid, 'songs', songId))
     } catch (err: any) {
       console.error('Error deleting song:', err)
@@ -203,31 +214,86 @@ export const useLibraryStore = defineStore('library', () => {
 
   async function toggleFavorite(songId: string) {
     const uid = authStore.user?.uid
-    if (!uid) {
-      throw new Error('Debe iniciar sesión para marcar favoritos.')
-    }
-
-    const song = songs.value.find((s) => s.id === songId)
-    if (!song) return
+    if (!uid) throw new Error('Debe iniciar sesión para marcar favoritos.')
 
     try {
       const songRef = doc(db, 'users', uid, 'songs', songId)
-      await updateDoc(songRef, {
-        favorite: !song.favorite
+      const song = songs.value.find((s) => s.id === songId)
+      if (song) {
+        await updateDoc(songRef, { favorite: !song.favorite })
+      }
+    } catch (err) {
+      console.error('Error toggling favorite:', err)
+      throw err
+    }
+  }
+
+  // Add a song metadata to favorites collection (works for WebRTC temporary songs too)
+  async function addToFavorites(songData: any) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión para marcar favoritos.')
+
+    try {
+      await addDoc(collection(db, 'users', uid, 'favoritos'), {
+        title: songData.title,
+        artist: songData.artist,
+        originalId: songData.id || null,
+        createdAt: serverTimestamp()
       })
     } catch (err) {
       console.error('Error toggling favorite:', err)
-      error.value = 'No se pudo actualizar el estado de favorito.'
+      throw err
+    }
+  }
+
+  // Create a new playlist
+  async function createPlaylist(name: string) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión para crear listas.')
+
+    try {
+      const playlistRef = doc(db, 'users', uid, 'playlists', name)
+      await setDoc(playlistRef, {
+        songs: [],
+        createdAt: serverTimestamp()
+      })
+    } catch (err) {
+      console.error('Error creating playlist:', err)
+      throw err
+    }
+  }
+
+  // Add song to playlist
+  async function addSongToPlaylist(playlistName: string, songData: any) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión.')
+
+    try {
+      const playlistRef = doc(db, 'users', uid, 'playlists', playlistName)
+      await updateDoc(playlistRef, {
+        songs: arrayUnion({
+          title: songData.title,
+          artist: songData.artist,
+          originalId: songData.id || null,
+          addedAt: Date.now()
+        })
+      })
+    } catch (err) {
+      console.error('Error adding to playlist:', err)
       throw err
     }
   }
 
   return {
     songs,
+    playlists,
     loading,
     error,
     addSong,
     deleteSong,
-    toggleFavorite
+    toggleFavorite,
+    addToFavorites,
+    createPlaylist,
+    addSongToPlaylist
   }
 })

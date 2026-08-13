@@ -1,32 +1,53 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { usePlayerStore } from '@/stores/playerStore'
 import RetroCassetteTape from './RetroCassetteTape.vue'
 
-defineProps<{
+const props = defineProps<{
   connectionStatus: 'disconnected' | 'connecting' | 'connected'
-  transferStatus: 'idle' | 'sending' | 'receiving' | 'assembling' | 'completed' | 'error'
-  transferProgress: number
-  fileHeader: { title: string; artist: string; totalSize: number } | null
+  remoteManifest: any[]
+  downloadProgress: Record<number, number>
+  availableSongs: Record<number, any>
 }>()
 
 defineEmits<{
   (e: 'startReceiver'): void
   (e: 'cleanup'): void
 }>()
+
+const playerStore = usePlayerStore()
+
+const currentPreloadIndices = computed(() => {
+  const currentIndex = playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id)
+  if (currentIndex === -1) return new Set<number>()
+  
+  const total = props.remoteManifest.length
+  const indices = new Set<number>()
+  for (let i = -5; i <= 5; i++) {
+    let idx = currentIndex + i
+    if (total > 0) {
+      if (idx < 0) idx = (idx % total) + total
+      if (idx >= total) idx = idx % total
+      indices.add(idx)
+    }
+  }
+  return indices
+})
 </script>
 
 <template>
   <div class="flex flex-col items-center justify-center p-4">
     <!-- Premium CSS Casette Graphic -->
     <RetroCassetteTape 
-      :title="fileHeader ? fileHeader.title : ''" 
-      :is-spinning="transferStatus === 'receiving'" 
+      :title="playerStore.currentSong?.title || ''" 
+      :is-spinning="playerStore.isPlaying" 
     />
 
     <!-- Receiver state messages -->
     <div class="text-center w-full space-y-4">
       
       <!-- Connection status dials -->
-      <div class="flex flex-col items-center gap-1.5">
+      <div class="flex flex-col items-center gap-1.5 mt-4">
         <div class="flex items-center gap-2">
           <span class="relative flex h-3.5 w-3.5">
             <span 
@@ -49,42 +70,30 @@ defineEmits<{
             <template v-else-if="connectionStatus === 'connected'">Conectado y Escuchando</template>
           </span>
         </div>
-        
-        <p class="font-roboto text-[11px] text-coffee max-w-sm">
-          <template v-if="connectionStatus === 'disconnected'">
-            Haz clic abajo para habilitar tu PC como receptor y esperar la transmisión de tu móvil.
-          </template>
-          <template v-else-if="connectionStatus === 'connecting'">
-            Abre la app en tu teléfono, selecciona una canción en el modo **"Transmitir"** e inicia la conexión.
-          </template>
-          <template v-else-if="connectionStatus === 'connected'">
-            ¡Vinculado correctamente! Envía una canción desde tu teléfono para que suene aquí.
-          </template>
-        </p>
       </div>
 
-      <!-- Progress bars and transfer states -->
-      <div v-if="transferStatus === 'receiving' || transferStatus === 'assembling' || transferStatus === 'completed'" class="bg-cream border-2 border-coffee rounded-2xl p-4 text-left space-y-2">
-        <div class="flex justify-between items-center text-xs font-roboto font-bold text-coffee uppercase">
-          <span>
-            <template v-if="transferStatus === 'receiving'">Recibiendo Audio Local...</template>
-            <template v-else-if="transferStatus === 'assembling'">Procesando Archivo...</template>
-            <template v-else-if="transferStatus === 'completed'">¡Canción cargada con éxito! 📻</template>
-          </span>
-          <span>{{ transferProgress }}%</span>
-        </div>
-        
-        <div class="w-full h-3 bg-coffee/20 rounded-full border-2 border-coffee overflow-hidden">
+      <!-- Shared Playlist (Shows active preloads) -->
+      <div v-if="connectionStatus === 'connected' && remoteManifest.length > 0" class="w-full text-left bg-cream border-2 border-coffee rounded-2xl p-3 shadow-[inset_2px_2px_4px_rgba(92,61,46,0.15)]">
+        <p class="font-roboto text-[10px] font-bold text-coffee uppercase tracking-wider mb-2 text-center">Canciones Sincronizadas ({{ remoteManifest.length }})</p>
+        <div class="max-h-60 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
           <div 
-            class="h-full rounded-full transition-all duration-100" 
-            :class="transferStatus === 'completed' ? 'bg-emerald-500' : 'bg-mustard'"
-            :style="{ width: transferProgress + '%' }"
-          ></div>
-        </div>
-        
-        <div v-if="fileHeader" class="text-[10px] font-roboto text-coffee flex items-center justify-between">
-          <span class="truncate pr-4">TÍTULO: <b>{{ fileHeader.title }}</b> ({{ fileHeader.artist }})</span>
-          <span class="shrink-0">TAMAÑO: {{ (fileHeader.totalSize / (1024 * 1024)).toFixed(2) }} MB</span>
+            v-for="song in remoteManifest" 
+            :key="song.id" 
+            class="p-2 border-2 rounded-xl transition-all font-roboto text-xs cursor-pointer"
+            :class="[
+               playerStore.currentSong?.id === `webrtc-${song.id}` ? 'bg-mustard text-cream border-coffee shadow-[2px_2px_0px_0px_rgba(92,61,46,1)]' : 'bg-paper text-petrol border-transparent hover:border-coffee/20',
+               currentPreloadIndices.has(song.id) ? 'opacity-100' : 'opacity-60'
+            ]"
+            @click="playerStore.loadSong(playerStore.playlist[song.id], playerStore.playlist)"
+          >
+            <div class="flex justify-between items-center">
+              <span class="truncate font-bold">{{ song.title }}</span>
+              <span class="shrink-0 text-[9px] uppercase opacity-80 font-bold" v-if="availableSongs[song.id]">LISTO</span>
+            </div>
+            <div v-if="currentPreloadIndices.has(song.id) && !availableSongs[song.id]" class="w-full h-1 bg-coffee/20 rounded-full overflow-hidden mt-1.5">
+               <div class="h-full bg-emerald-500 transition-all duration-100" :style="{ width: (downloadProgress[song.id] || 0) + '%' }"></div>
+            </div>
+          </div>
         </div>
       </div>
 

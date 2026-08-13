@@ -4,9 +4,11 @@ import { usePlayerStore } from '@/stores/playerStore'
 import { gsap } from 'gsap'
 import { animate } from 'animejs'
 import { MorphIcon } from 'morphicons/vue'
-import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX } from 'lucide'
+import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Heart, Plus } from 'lucide'
 import { usePlatform } from '@/composables/usePlatform'
 import { useDpadNavigation } from '@/composables/useDpadNavigation'
+import { useLibraryStore } from '@/stores/libraryStore'
+import PlaylistModal from './PlaylistModal.vue'
 
 const { isTV } = usePlatform()
 const { handleDpadKeyDown } = useDpadNavigation()
@@ -20,6 +22,27 @@ const onButtonKeyDown = (e: KeyboardEvent) => {
 }
 
 const playerStore = usePlayerStore()
+const libraryStore = useLibraryStore()
+
+const isPlaylistModalOpen = ref(false)
+const isLiking = ref(false)
+
+const handleLike = async () => {
+  if (!playerStore.currentSong) return
+  isLiking.value = true
+  try {
+    const songId = playerStore.currentSong.id;
+    if (songId && songId.startsWith('webrtc-')) {
+       await libraryStore.addToFavorites(playerStore.currentSong)
+       playerStore.currentSong.favorite = true
+    } else if (songId) {
+       await libraryStore.toggleFavorite(songId)
+    }
+  } catch(e) {
+    console.error(e)
+  }
+  isLiking.value = false
+}
 
 const playBtn = ref<HTMLElement | null>(null)
 const prevBtn = ref<HTMLElement | null>(null)
@@ -173,9 +196,17 @@ const handleNextClick = () => {
           <h4 class="font-pixelify text-sm font-bold text-petrol truncate uppercase leading-tight">
             {{ playerStore.currentSong.title }}
           </h4>
-          <p class="font-roboto text-xs text-coffee truncate mt-0.5">
+          <p class="font-roboto text-xs text-coffee truncate mt-0.5 mb-1">
             {{ playerStore.currentSong.artist }}
           </p>
+          <div class="flex gap-2">
+            <button @click="handleLike" :disabled="isLiking" class="text-terracotta hover:scale-110 transition-transform">
+              <component :is="Heart" :size="14" :fill="playerStore.currentSong.favorite ? 'currentColor' : 'none'" stroke-width="2.5" />
+            </button>
+            <button @click="isPlaylistModalOpen = true" class="text-coffee hover:scale-110 transition-transform">
+              <component :is="Plus" :size="14" stroke-width="2.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -287,6 +318,12 @@ const handleNextClick = () => {
       </div>
     </div>
   </transition>
+  
+  <PlaylistModal 
+    :is-open="isPlaylistModalOpen" 
+    :song-data="playerStore.currentSong"
+    @close="isPlaylistModalOpen = false"
+  />
 </template>
 
 <style scoped>

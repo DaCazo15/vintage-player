@@ -143,6 +143,13 @@ const handleLogout = async () => {
         >
           Conectar Celular 📱
         </button>
+        <a
+          href="/vintage-player.apk"
+          download
+          class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer text-xs flex items-center gap-1.5"
+        >
+          Descargar APK 📺
+        </a>
         <button
           ref="logoutBtn"
           @click="handleLogout"

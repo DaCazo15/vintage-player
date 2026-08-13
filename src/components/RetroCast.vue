@@ -6,17 +6,15 @@ import RetroCastReceiver from './RetroCastReceiver.vue'
 const {
   role,
   connectionStatus,
-  transferStatus,
-  transferProgress,
   errorMessage,
-  audioFile,
-  title,
-  artist,
-  fileHeader,
   localSongs,
   folderName,
+  sharedManifest,
+  uploadProgress,
+  remoteManifest,
+  downloadProgress,
+  availableSongs,
   handleFolderSelect,
-  selectLocalSong,
   changeFolder,
   startReceiver,
   startSender,
@@ -34,7 +32,7 @@ const {
           Retro Cast 📻 <span class="text-xs px-2 py-0.5 bg-mustard border border-coffee rounded-md text-cream">P2P LOCAL</span>
         </h3>
         <p class="font-roboto text-xs text-coffee mt-0.5">
-          Transmite música directa de tu móvil a tu PC en tiempo real.
+          Sincroniza y transmite carpetas enteras de música.
         </p>
       </div>
 
@@ -48,7 +46,7 @@ const {
             role === 'sender' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper'
           ]"
         >
-          📱 Transmitir
+          📱 Compartir
         </button>
         <button
           type="button"
@@ -58,7 +56,7 @@ const {
             role === 'receiver' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper'
           ]"
         >
-          💻 Recibir
+          💻 Reproducir
         </button>
       </div>
     </div>
@@ -74,16 +72,12 @@ const {
     <!-- Render active sub-component based on role -->
     <RetroCastSender
       v-if="role === 'sender'"
-      v-model:title="title"
-      v-model:artist="artist"
-      :audio-file="audioFile"
       :connection-status="connectionStatus"
-      :transfer-status="transferStatus"
-      :transfer-progress="transferProgress"
       :local-songs="localSongs"
       :folder-name="folderName"
+      :shared-manifest="sharedManifest"
+      :upload-progress="uploadProgress"
       @select-folder="handleFolderSelect"
-      @select-local-song="selectLocalSong"
       @change-folder="changeFolder"
       @start-sender="startSender"
     />
@@ -91,9 +85,9 @@ const {
     <RetroCastReceiver
       v-else-if="role === 'receiver'"
       :connection-status="connectionStatus"
-      :transfer-status="transferStatus"
-      :transfer-progress="transferProgress"
-      :file-header="fileHeader"
+      :remote-manifest="remoteManifest"
+      :download-progress="downloadProgress"
+      :available-songs="availableSongs"
       @start-receiver="startReceiver"
       @cleanup="cleanup"
     />
