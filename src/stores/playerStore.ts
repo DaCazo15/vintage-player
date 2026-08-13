@@ -69,6 +69,17 @@ export const usePlayerStore = defineStore('player', () => {
     play()
   }
 
+  function updateAudioSrc(url: string) {
+    if (currentSong.value) {
+      currentSong.value.audioUrl = url
+    }
+    const wasPlaying = isPlaying.value
+    audio.src = url
+    if (wasPlaying) {
+      audio.play().catch(err => console.error('Play after update failed:', err))
+    }
+  }
+
   function play() {
     if (!currentSong.value && playlist.value.length > 0) {
       loadSong(playlist.value[0])
@@ -165,6 +176,7 @@ export const usePlayerStore = defineStore('player', () => {
     volume,
     playlist,
     loadSong,
+    updateAudioSrc,
     play,
     pause,
     stop,

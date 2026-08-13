@@ -10,7 +10,7 @@ import SongList from '@/components/SongList.vue'
 import RetroCast from '@/components/RetroCast.vue'
 import { usePlatform } from '@/composables/usePlatform'
 
-const { isTV, isNative } = usePlatform()
+const { isTV, isMobile } = usePlatform()
 
 
 const authStore = useAuthStore()
@@ -150,7 +150,7 @@ const handleLogout = async () => {
           VINTAGE PLAYER
           <span class="text-sm px-2 py-1 bg-coffee text-cream rounded-lg tracking-normal flex items-center gap-1 mt-2">
             <template v-if="isTV">📺 TV</template>
-            <template v-else-if="isNative">📱 Celular</template>
+            <template v-else-if="isMobile">📱 Celular</template>
             <template v-else>💻 Web</template>
           </span>
         </h1>
@@ -173,14 +173,14 @@ const handleLogout = async () => {
           class="px-4 py-2 bg-mustard hover:bg-terracotta text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer text-xs flex items-center gap-1.5"
           aria-label="Iniciar guía de conexión con el teléfono celular"
         >
-          Conectar Celular 📱
+          Conectar Celular
         </button>
         <a
           href="/vintage-player.apk"
           download
           class="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer text-xs flex items-center gap-1.5"
         >
-          Descargar APK 📺
+          Descargar APK
         </a>
         <button
           ref="logoutBtn"
@@ -240,31 +240,31 @@ const handleLogout = async () => {
     </transition>
 
     <!-- Playlist / Grid Grid Section -->
-    <section v-if="!(retroConnectionStatus === 'connected' && retroRole === 'receiver' && showTransmitter)" class="flex-1 flex flex-col">
+    <section v-if="!(showTransmitter)" class="flex-1 flex flex-col">
       <!-- Filter Buttons -->
       <div class="flex flex-col sm:flex-row gap-4 mb-6">
         <div class="flex items-center border-2 border-coffee rounded-xl overflow-hidden bg-cream shrink-0">
           <button
             @click="activeFilter = 'all'"
-            :class="['px-4 py-2 font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'all' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+            :class="['px-4 py-2 w-full font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'all' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
           >
             Todas
           </button>
           <button
             @click="activeFilter = 'favorites'"
-            :class="['px-4 py-2 font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'favorites' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+            :class="['px-4 py-2 w-full flex flex-row justify-center items-center font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'favorites' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
           >
-            ❤️ Favoritos
+            Favoritos
           </button>
           <button
             @click="activeFilter = 'playlists'"
-            :class="['px-4 py-2 font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'playlists' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+            :class="['px-4 py-2 w-full flex flex-row justify-center items-center font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'playlists' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
           >
-            📋 Listas
+            Listas
           </button>
         </div>
         
-        <div v-if="activeFilter === 'playlists'" class="flex-1">
+        <div v-if="activeFilter === 'playlists'" class="">
           <select 
             v-model="activePlaylistId"
             class="w-full sm:w-auto pl-4 pr-10 py-2 bg-paper border-2 border-coffee rounded-xl font-roboto text-sm text-petrol outline-none focus:border-mustard cursor-pointer appearance-none"

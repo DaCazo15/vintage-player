@@ -19,6 +19,9 @@ const {
   remoteManifest,
   downloadProgress,
   availableSongs,
+  isSyncingAll,
+  syncAll,
+  cancelSyncAll,
   handleFolderSelect,
   changeFolder,
   startReceiver,
@@ -55,7 +58,7 @@ watch([connectionStatus, role], ([newStatus, newRole]) => {
             role === 'sender' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper'
           ]"
         >
-          📱 Compartir
+          Compartir
         </button>
         <button
           type="button"
@@ -65,7 +68,7 @@ watch([connectionStatus, role], ([newStatus, newRole]) => {
             role === 'receiver' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper'
           ]"
         >
-          💻 Reproducir
+          Reproducir
         </button>
       </div>
     </div>
@@ -97,8 +100,11 @@ watch([connectionStatus, role], ([newStatus, newRole]) => {
       :remote-manifest="remoteManifest"
       :download-progress="downloadProgress"
       :available-songs="availableSongs"
+      :is-syncing-all="isSyncingAll"
       @start-receiver="startReceiver"
       @cleanup="cleanup"
+      @sync-all="syncAll"
+      @cancel-sync-all="cancelSyncAll"
     />
 
   </div>

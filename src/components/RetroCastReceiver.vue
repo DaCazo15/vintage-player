@@ -8,16 +8,25 @@ const props = defineProps<{
   remoteManifest: any[]
   downloadProgress: Record<number, number>
   availableSongs: Record<number, any>
+  isSyncingAll: boolean
 }>()
 
 defineEmits<{
   (e: 'startReceiver'): void
   (e: 'cleanup'): void
+  (e: 'syncAll'): void
+  (e: 'cancelSyncAll'): void
 }>()
 
 const playerStore = usePlayerStore()
 
 const currentPreloadIndices = computed(() => {
+  if (props.isSyncingAll) {
+    const indices = new Set<number>()
+    for (let i = 0; i < props.remoteManifest.length; i++) indices.add(i)
+    return indices
+  }
+
   const currentIndex = playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id)
   if (currentIndex === -1) return new Set<number>()
   
@@ -32,6 +41,34 @@ const currentPreloadIndices = computed(() => {
     }
   }
   return indices
+})
+
+const syncAllProgress = computed(() => {
+  if (props.remoteManifest.length === 0) return 0
+  
+  let downloadedBytes = 0
+  let totalBytes = 0
+  
+  props.remoteManifest.forEach((song, idx) => {
+    totalBytes += song.totalSize || 0
+    if (props.availableSongs[idx]) {
+       downloadedBytes += song.totalSize || 0
+    } else {
+       const p = props.downloadProgress[idx] || 0
+       downloadedBytes += (song.totalSize || 0) * (p / 100)
+    }
+  })
+  
+  if (totalBytes === 0) return 0
+  return Math.round((downloadedBytes / totalBytes) * 100)
+})
+
+const completedCount = computed(() => {
+  return Object.keys(props.availableSongs).length
+})
+
+const isSyncComplete = computed(() => {
+  return completedCount.value === props.remoteManifest.length && props.remoteManifest.length > 0
 })
 </script>
 
@@ -74,7 +111,15 @@ const currentPreloadIndices = computed(() => {
 
       <!-- Shared Playlist (Shows active preloads) -->
       <div v-if="connectionStatus === 'connected' && remoteManifest.length > 0" class="w-full text-left bg-cream border-2 border-coffee rounded-2xl p-3 shadow-[inset_2px_2px_4px_rgba(92,61,46,0.15)]">
-        <p class="font-roboto text-[10px] font-bold text-coffee uppercase tracking-wider mb-2 text-center">Canciones Sincronizadas ({{ remoteManifest.length }})</p>
+        <div class="flex justify-between items-center mb-2">
+          <p class="font-roboto text-[10px] font-bold text-coffee uppercase tracking-wider">Sincronizadas ({{ remoteManifest.length }})</p>
+          <button 
+            @click="$emit('syncAll')"
+            class="px-2 py-1 bg-mustard hover:bg-terracotta text-cream font-roboto text-[9px] font-bold border-2 border-coffee rounded-lg shadow-[2px_2px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+          >
+            Descargar Todas ⬇️
+          </button>
+        </div>
         <div class="max-h-60 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
           <div 
             v-for="song in remoteManifest" 
@@ -115,5 +160,57 @@ const currentPreloadIndices = computed(() => {
         Desconectar
       </button>
     </div>
+
+    <!-- Sync All Blocking Modal -->
+    <Teleport to="body">
+      <transition
+        enter-active-class="transition-opacity duration-300"
+        enter-from-class="opacity-0"
+        enter-to-class="opacity-100"
+        leave-active-class="transition-opacity duration-300"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0"
+      >
+        <div v-if="isSyncingAll" class="fixed inset-0 bg-petrol/90 backdrop-blur-sm z-100 flex flex-col items-center justify-center p-6 text-cream">
+          <div class="w-full max-w-md bg-paper border-4 border-coffee rounded-3xl p-6 shadow-[8px_8px_0px_0px_rgba(92,61,46,1)] text-petrol flex flex-col items-center relative">
+            <h2 class="font-pixelify text-3xl font-bold mb-2">Descargando Todo</h2>
+            <p class="font-roboto text-sm font-bold text-coffee mb-6 text-center">
+              Asegurando tu colección en la caché de este dispositivo...
+            </p>
+            
+            <div class="w-full bg-cream border-2 border-coffee p-4 rounded-xl mb-6 relative overflow-hidden shadow-inner">
+              <div class="absolute inset-0 bg-mustard/20 origin-left transition-all duration-300" :style="{ transform: `scaleX(${syncAllProgress / 100})` }"></div>
+              
+              <div class="relative flex justify-between items-center z-10 mb-2">
+                <span class="font-pixelify text-2xl font-bold">{{ syncAllProgress }}%</span>
+                <span class="font-roboto text-sm font-bold text-coffee">{{ completedCount }} / {{ remoteManifest.length }} completados</span>
+              </div>
+              
+              <div class="w-full h-3 bg-coffee/20 rounded-full overflow-hidden relative z-10 border border-coffee/30">
+                 <div class="h-full bg-emerald-500 transition-all duration-300" :style="{ width: syncAllProgress + '%' }"></div>
+              </div>
+            </div>
+
+            <div class="flex w-full gap-4">
+              <button 
+                v-if="!isSyncComplete"
+                @click="$emit('cancelSyncAll')" 
+                class="flex-1 py-3 bg-terracotta hover:bg-terracotta/90 text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[4px_4px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              
+              <button 
+                v-if="isSyncComplete"
+                @click="$emit('cancelSyncAll')" 
+                class="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[4px_4px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1 transition-all cursor-pointer"
+              >
+                Cerrar y Escuchar
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </Teleport>
   </div>
 </template>

@@ -199,14 +199,6 @@ const handleNextClick = () => {
           <p class="font-roboto text-xs text-coffee truncate mt-0.5 mb-1">
             {{ playerStore.currentSong.artist }}
           </p>
-          <div class="flex gap-2">
-            <button @click="handleLike" :disabled="isLiking" class="text-terracotta hover:scale-110 transition-transform">
-              <component :is="Heart" :size="14" :fill="playerStore.currentSong.favorite ? 'currentColor' : 'none'" stroke-width="2.5" />
-            </button>
-            <button @click="isPlaylistModalOpen = true" class="text-coffee hover:scale-110 transition-transform">
-              <component :is="Plus" :size="14" stroke-width="2.5" />
-            </button>
-          </div>
         </div>
       </div>
 
@@ -257,6 +249,8 @@ const handleNextClick = () => {
           >
             <MorphIcon :icon="SkipForward" size="14" color="currentColor" stroke-width="2.5" />
           </button>
+
+
         </div>
 
         <!-- Seeker progress bar -->
@@ -284,8 +278,32 @@ const handleNextClick = () => {
         </div>
       </div>
 
-      <!-- Right Column: Volume Control (Hidden on Mobile) -->
-      <div class="hidden sm:flex items-center gap-2 shrink-0 sm:max-w-xs justify-end flex-1 sm:flex-initial">
+      <!-- Right Column: Volume Control & Extra Actions -->
+      <div class="hidden sm:flex items-center gap-4 shrink-0 sm:max-w-xs justify-end flex-1 sm:flex-initial">
+        <!-- Extra Actions -->
+        <div class="flex items-center gap-3 mr-2">
+          <!-- Favorite button -->
+          <button 
+            @click="handleLike" 
+            :disabled="isLiking" 
+            class="flex text-terracotta hover:scale-110 transition-transform"
+            aria-label="Añadir a favoritos"
+            title="Añadir a Favoritos"
+          >
+            <component :is="Heart" :size="20" :fill="playerStore.currentSong.favorite ? 'currentColor' : 'none'" stroke-width="2.5" />
+          </button>
+
+          <!-- Playlist button -->
+          <button 
+            @click="isPlaylistModalOpen = true" 
+            class="flex text-coffee hover:text-mustard hover:scale-110 transition-transform"
+            aria-label="Ver playlist"
+            title="Lista de Reproducción"
+          >
+            <component :is="Plus" :size="22" stroke-width="2.5" />
+          </button>
+        </div>
+        
         <button
           type="button"
           @click="toggleMute"

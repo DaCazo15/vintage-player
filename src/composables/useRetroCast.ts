@@ -1,4 +1,6 @@
 import { ref, onUnmounted, watch } from 'vue'
+import { set, get, clear } from 'idb-keyval'
+import { usePlatform } from '@/composables/usePlatform'
 import { db } from '@/firebase/config'
 import { useAuthStore } from '@/stores/authStore'
 import { usePlayerStore } from '@/stores/playerStore'
@@ -37,6 +39,8 @@ export function useRetroCast() {
   // States
   const connectionStatus = ref<'disconnected' | 'connecting' | 'connected'>('disconnected')
   const errorMessage = ref<string | null>(null)
+  
+  let currentStorageBytes = 0
 
   // Sender specific
   const localSongs = ref<File[]>([])
@@ -44,10 +48,11 @@ export function useRetroCast() {
   const sharedManifest = ref<any[]>([])
   const uploadProgress = ref<Record<number, number>>({})
 
-  // Receiver specific
   const remoteManifest = ref<any[]>([])
   const downloadProgress = ref<Record<number, number>>({})
   const availableSongs = ref<Record<number, any>>({}) // fileIndex -> Song object
+  const downloadQueue = ref<number[]>([])
+  const activeDownloads = ref<Set<number>>(new Set())
 
   // WebRTC and Firestore subscription instances
   let peerConnection: RTCPeerConnection | null = null
@@ -113,6 +118,44 @@ export function useRetroCast() {
     uploadProgress.value = {}
   }
 
+let wakeLock: any = null
+let silentAudio: HTMLAudioElement | null = null
+
+async function enableBackgroundKeepAlive() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await (navigator as any).wakeLock.request('screen')
+    }
+  } catch (err) {
+    console.warn('Wake Lock error:', err)
+  }
+
+  if (!silentAudio) {
+    silentAudio = new Audio()
+    // Small silent WAV file
+    silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
+    silentAudio.loop = true
+    silentAudio.volume = 0.01
+  }
+  
+  try {
+    await silentAudio.play()
+  } catch (err) {
+    console.warn('Silent audio play failed. User gesture might be missing:', err)
+  }
+}
+
+function disableBackgroundKeepAlive() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {})
+    wakeLock = null
+  }
+  if (silentAudio) {
+    silentAudio.pause()
+    silentAudio.currentTime = 0
+  }
+}
+
   function cleanup() {
     clearConnectionTimeout()
     if (unsubscribeFirestore) {
@@ -127,18 +170,25 @@ export function useRetroCast() {
     }
     controlChannel = null
     
-    // Clear Object URLs to prevent memory leaks
+    // Clear Object URLs and IDB
+    clear().catch(e => console.warn('Failed to clear IDB:', e))
+    currentStorageBytes = 0
+
     Object.values(availableSongs.value).forEach(song => {
-      if (song.audioUrl) URL.revokeObjectURL(song.audioUrl)
+      if (song.audioUrl && song.storageType === 'ram') URL.revokeObjectURL(song.audioUrl)
     })
     availableSongs.value = {}
     downloadProgress.value = {}
+    downloadQueue.value = []
+    activeDownloads.value.clear()
     remoteManifest.value = []
 
     // Stop playback if playing a remote song
     if (playerStore.currentSong?.id?.toString().startsWith('webrtc-')) {
       playerStore.stop()
     }
+    
+    disableBackgroundKeepAlive()
   }
 
   onUnmounted(() => {
@@ -155,10 +205,34 @@ export function useRetroCast() {
     }
   }, { immediate: true })
 
-  // Trigger preload manager whenever current song changes
-  watch(() => playerStore.currentSong, () => {
+  let tempIdbUrl = ''
+
+  // Trigger preload manager and IDB loader whenever current song changes
+  watch(() => playerStore.currentSong, async (newSong) => {
+    if (tempIdbUrl) {
+      URL.revokeObjectURL(tempIdbUrl)
+      tempIdbUrl = ''
+    }
+
     if (role.value === 'receiver' && connectionStatus.value === 'connected' && remoteManifest.value.length > 0) {
       managePreloading()
+
+      if (newSong && newSong.id && newSong.id.toString().startsWith('webrtc-')) {
+        const idx = parseInt(newSong.id.toString().split('-')[1])
+        const songData = availableSongs.value[idx]
+
+        if (songData && songData.storageType === 'idb') {
+          try {
+            const blob = await get<Blob>(`webrtc-${idx}`)
+            if (blob) {
+              tempIdbUrl = URL.createObjectURL(blob)
+              playerStore.updateAudioSrc(tempIdbUrl)
+            }
+          } catch (e) {
+            console.error('Failed to load song from IDB', e)
+          }
+        }
+      }
     }
   })
 
@@ -167,6 +241,7 @@ export function useRetroCast() {
   // ---------------------------------------------------------
   async function startReceiver() {
     cleanup()
+    enableBackgroundKeepAlive()
     connectionStatus.value = 'connecting'
     errorMessage.value = null
 
@@ -282,45 +357,92 @@ export function useRetroCast() {
     }
   }
 
+  const isSyncingAll = ref(false)
+
+  function syncAll() {
+    isSyncingAll.value = true
+    managePreloading()
+  }
+
+  function cancelSyncAll() {
+    isSyncingAll.value = false
+    downloadQueue.value = []
+    managePreloading()
+  }
+
+  function processQueue() {
+    // Aumentar a 5 descargas paralelas
+    while (activeDownloads.value.size < 5 && downloadQueue.value.length > 0) {
+      const idx = downloadQueue.value.shift()!
+      activeDownloads.value.add(idx)
+      requestFile(idx, remoteManifest.value[idx])
+    }
+  }
+
   function managePreloading() {
     if (!peerConnection) return
     const currentIndex = playerStore.playlist.findIndex(s => s.id === playerStore.currentSong?.id)
-    if (currentIndex === -1) return
+    if (currentIndex === -1 && !isSyncingAll.value) return
     
     const total = remoteManifest.value.length
     const indicesToLoad = new Set<number>()
     
-    // Window: -5 to +5
-    for (let i = -5; i <= 5; i++) {
-      let idx = currentIndex + i
-      if (total > 0) {
-        // Wrap around logic
-        if (idx < 0) idx = (idx % total) + total
-        if (idx >= total) idx = idx % total
-        indicesToLoad.add(idx)
+    if (isSyncingAll.value) {
+      // Download all songs
+      for (let i = 0; i < total; i++) {
+        indicesToLoad.add(i)
+      }
+    } else {
+      // Window: -5 to +5
+      for (let i = -5; i <= 5; i++) {
+        let idx = currentIndex + i
+        if (total > 0) {
+          // Wrap around logic
+          if (idx < 0) idx = (idx % total) + total
+          if (idx >= total) idx = idx % total
+          indicesToLoad.add(idx)
+        }
       }
     }
     
-    // Request missing chunks
+    // Build new queue
+    const newQueue: number[] = []
     indicesToLoad.forEach(idx => {
-      const manifestItem = remoteManifest.value[idx]
-      if (!availableSongs.value[idx] && downloadProgress.value[idx] === undefined) {
-         requestFile(idx, manifestItem)
+      if (!availableSongs.value[idx] && !activeDownloads.value.has(idx)) {
+         newQueue.push(idx)
       }
     })
     
-    // Free memory for songs outside the window
-    Object.keys(availableSongs.value).forEach(k => {
-      const idx = parseInt(k)
-      if (!indicesToLoad.has(idx)) {
-         URL.revokeObjectURL(availableSongs.value[idx].audioUrl)
-         delete availableSongs.value[idx]
-         delete downloadProgress.value[idx]
-         if (playerStore.playlist[idx]) {
-           playerStore.playlist[idx].audioUrl = ''
-         }
-      }
+    // Sort so current song is prioritized (closest to currentIndex)
+    newQueue.sort((a, b) => {
+       if (a === currentIndex) return -1
+       if (b === currentIndex) return 1
+       // Ascending order by proximity to current
+       const distA = Math.abs(a - currentIndex)
+       const distB = Math.abs(b - currentIndex)
+       return distA - distB
     })
+    
+    downloadQueue.value = newQueue
+    processQueue()
+    
+    // Free memory for songs outside the window ONLY if not syncing all
+    if (!isSyncingAll.value) {
+      Object.keys(availableSongs.value).forEach(k => {
+        const idx = parseInt(k)
+        if (!indicesToLoad.has(idx)) {
+           const song = availableSongs.value[idx]
+           if (song.storageType === 'ram') {
+             if (song.audioUrl) URL.revokeObjectURL(song.audioUrl)
+             delete availableSongs.value[idx]
+             delete downloadProgress.value[idx]
+             if (playerStore.playlist[idx]) {
+               playerStore.playlist[idx].audioUrl = ''
+             }
+           }
+        }
+      })
+    }
   }
 
   function requestFile(idx: number, manifestItem: any) {
@@ -338,13 +460,27 @@ export function useRetroCast() {
       
       if (bytesReceived >= manifestItem.totalSize) {
         const fileBlob = new Blob(receivedChunks, { type: manifestItem.mimeType })
-        const objectUrl = URL.createObjectURL(fileBlob)
+        
+        const { isTV } = usePlatform()
+        const isIdbEligible = !isTV.value && (currentStorageBytes + manifestItem.totalSize < 1024 * 1024 * 1024)
+        
+        let objectUrl = ''
+        let storageType = 'ram'
+        
+        if (isIdbEligible) {
+          storageType = 'idb'
+          currentStorageBytes += manifestItem.totalSize
+          set(`webrtc-${idx}`, fileBlob).catch(err => console.error('IDB set error:', err))
+        } else {
+          objectUrl = URL.createObjectURL(fileBlob)
+        }
         
         availableSongs.value[idx] = {
            id: `webrtc-${idx}`,
            title: manifestItem.title,
            artist: manifestItem.artist,
            audioUrl: objectUrl,
+           storageType: storageType,
            coverUrl: null,
            duration: 0,
            createdAt: new Date(),
@@ -357,10 +493,25 @@ export function useRetroCast() {
         
         // If this is the currently waiting song, play it
         if (playerStore.currentSong?.id === `webrtc-${idx}` && playerStore.currentSong.audioUrl === '') {
-           playerStore.loadSong(playerStore.playlist[idx], playerStore.playlist)
+           if (storageType === 'ram') {
+             playerStore.loadSong(playerStore.playlist[idx], playerStore.playlist)
+           } else {
+             // For IDB, assigning the currentSong will trigger the watcher above to load from IDB
+             playerStore.loadSong(playerStore.playlist[idx], playerStore.playlist)
+           }
         }
         
+        activeDownloads.value.delete(idx)
+        processQueue()
         channel.close()
+      }
+    }
+    
+    channel.onclose = () => {
+      if (activeDownloads.value.has(idx) && bytesReceived < manifestItem.totalSize) {
+         activeDownloads.value.delete(idx)
+         delete downloadProgress.value[idx]
+         processQueue()
       }
     }
   }
@@ -376,6 +527,7 @@ export function useRetroCast() {
     }
 
     cleanup()
+    enableBackgroundKeepAlive()
     connectionStatus.value = 'connecting'
     errorMessage.value = null
 
@@ -497,38 +649,45 @@ export function useRetroCast() {
         const buffer = e.target?.result as ArrayBuffer
         if (!buffer) return
 
-        const chunkSize = 65536 // 64 KB
+        const chunkSize = 3145728 // 3 MB
         const totalSize = buffer.byteLength
         let offset = 0
         let bytesSent = 0
+        
+        // Increase the buffer threshold to allow faster burst sending
+        // especially important in background tabs to minimize context switching
+        const MAX_BUFFER = chunkSize * 16 
 
-        function sendNextChunk() {
+        function pumpData() {
           if (channel.readyState !== 'open') return
 
-          if (channel.bufferedAmount > 65536) {
-            channel.onbufferedamountlow = () => {
-              channel.onbufferedamountlow = null
-              sendNextChunk()
+          while (offset < totalSize) {
+            if (channel.bufferedAmount > MAX_BUFFER) {
+              // Wait for the native WebRTC event (not throttled by background tab limits)
+              channel.onbufferedamountlow = () => {
+                channel.onbufferedamountlow = null
+                pumpData()
+              }
+              return
             }
-            return
-          }
 
-          if (offset < totalSize) {
             const slice = buffer.slice(offset, offset + chunkSize)
             channel.send(slice)
             offset += chunkSize
             bytesSent += slice.byteLength
-            uploadProgress.value[fileId] = Math.min(100, Math.round((bytesSent / totalSize) * 100))
             
-            // Allow JS event loop to breathe
-            setTimeout(sendNextChunk, 1)
-          } else {
+            // Only update progress UI occasionally to save UI rendering in background
+            if (offset % (chunkSize * 4) === 0 || offset >= totalSize) {
+              uploadProgress.value[fileId] = Math.min(100, Math.round((bytesSent / totalSize) * 100))
+            }
+          }
+
+          if (offset >= totalSize) {
             uploadProgress.value[fileId] = 100
-            // Channel closes automatically on receiver side once bytes received == totalSize
           }
         }
 
-        sendNextChunk()
+        pumpData()
       }
       reader.readAsArrayBuffer(file)
     }
@@ -545,6 +704,11 @@ export function useRetroCast() {
     remoteManifest,
     downloadProgress,
     availableSongs,
+    isSyncingAll,
+    downloadQueue,
+    activeDownloads,
+    syncAll,
+    cancelSyncAll,
     handleFolderSelect,
     changeFolder,
     startReceiver,

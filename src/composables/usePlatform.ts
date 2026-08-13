@@ -5,6 +5,7 @@ export function usePlatform() {
   const isTV = ref(false)
   const isNative = ref(false)
   const isWeb = ref(true)
+  const isMobile = ref(false)
 
   // 1. Detect if running natively in Capacitor
   isNative.value = Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'web'
@@ -28,10 +29,14 @@ export function usePlatform() {
 
   isTV.value = (isNative.value && (isTvUA || isTvScreen)) || forceTV
   isWeb.value = !isNative.value
+  
+  const isMobileUA = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua)
+  isMobile.value = isMobileUA || (isNative.value && !isTV.value)
 
   return {
     isTV,
     isNative,
-    isWeb
+    isWeb,
+    isMobile
   }
 }

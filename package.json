@@ -16,6 +16,7 @@
     "driver.js": "^1.8.0",
     "firebase": "^12.17.1",
     "gsap": "^3.15.0",
+    "idb-keyval": "^6.3.0",
     "lucide": "^1.31.0",
     "morphicons": "^1.6.0",
     "pinia": "^4.0.3",

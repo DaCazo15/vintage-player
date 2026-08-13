@@ -2,7 +2,6 @@
 import { RouterView } from 'vue-router'
 import { usePlayerStore } from '@/stores/playerStore'
 import AudioPlayer from '@/components/AudioPlayer.vue'
-import DebugConsole from '@/components/DebugConsole.vue'
 
 const playerStore = usePlayerStore()
 </script>
@@ -14,6 +13,5 @@ const playerStore = usePlayerStore()
   >
     <RouterView />
     <AudioPlayer />
-    <DebugConsole />
   </div>
 </template>
