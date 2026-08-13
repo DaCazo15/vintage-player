@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #F4E9D8;
+  --color-paper: #EADFC8;
+  --color-mustard: #D9A441;
+  --color-terracotta: #C1502E;
+  --color-petrol: #23413E;
+  --color-coffee: #5C3D2E;
+  --color-gold: #B8860B;
+
+  --font-pixelify: "Pixelify Sans", system-ui, sans-serif;
+  --font-roboto: "Roboto", system-ui, sans-serif;
+}
+
+/* Base resets & typography applications */
+body {
+  background-color: var(--color-cream);
+  color: var(--color-petrol);
+  font-family: var(--font-roboto);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Utility layout/fonts rules */
+.font-pixelify {
+  font-family: var(--font-pixelify);
+}
+
+.font-roboto {
+  font-family: var(--font-roboto);
+}
