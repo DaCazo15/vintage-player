@@ -8,6 +8,10 @@ import { driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import SongList from '@/components/SongList.vue'
 import RetroCast from '@/components/RetroCast.vue'
+import { usePlatform } from '@/composables/usePlatform'
+
+const { isTV, isNative } = usePlatform()
+
 
 const authStore = useAuthStore()
 const libraryStore = useLibraryStore()
@@ -16,6 +20,16 @@ console.log('UID celular:', authStore.user?.uid, 'email:', authStore.user?.email
 
 const showTransmitter = ref(false)
 const searchQuery = ref('')
+const activeFilter = ref<'all' | 'favorites' | 'playlists'>('all')
+const activePlaylistId = ref<string>('')
+
+const retroConnectionStatus = ref('disconnected')
+const retroRole = ref('receiver')
+
+const handleConnectionStatus = (status: string, role: string) => {
+  retroConnectionStatus.value = status
+  retroRole.value = role
+}
 
 const toggleTransmitterBtn = ref<HTMLElement | null>(null)
 const logoutBtn = ref<HTMLElement | null>(null)
@@ -83,9 +97,22 @@ const startConnectionGuide = () => {
 
 // Client-side search filtering
 const filteredSongs = computed(() => {
+  let list = libraryStore.songs
+
+  if (activeFilter.value === 'favorites') {
+    list = list.filter(s => s.favorite)
+  } else if (activeFilter.value === 'playlists' && activePlaylistId.value) {
+    const p = libraryStore.playlists.find(pl => pl.id === activePlaylistId.value)
+    if (p) {
+      list = p.songs.map(ps => {
+         return libraryStore.songs.find(s => s.id === ps.originalId) || { ...ps, id: ps.originalId }
+      }).filter(s => s) as any[]
+    }
+  }
+
   const query = searchQuery.value.trim().toLowerCase()
-  if (!query) return libraryStore.songs
-  return libraryStore.songs.filter(
+  if (!query) return list
+  return list.filter(
     (song) =>
       song.title.toLowerCase().includes(query) ||
       song.artist.toLowerCase().includes(query)
@@ -119,8 +146,13 @@ const handleLogout = async () => {
     <!-- Header Block -->
     <header class="flex flex-col sm:flex-row justify-between items-center gap-4 border-b-4 border-coffee pb-6 mb-8">
       <div>
-        <h1 id="header-title" class="font-pixelify text-4xl md:text-5xl font-bold tracking-wider text-petrol">
+        <h1 id="header-title" class="font-pixelify text-4xl md:text-5xl font-bold tracking-wider text-petrol flex items-center gap-3">
           VINTAGE PLAYER
+          <span class="text-sm px-2 py-1 bg-coffee text-cream rounded-lg tracking-normal flex items-center gap-1 mt-2">
+            <template v-if="isTV">📺 TV</template>
+            <template v-else-if="isNative">📱 Celular</template>
+            <template v-else>💻 Web</template>
+          </span>
         </h1>
         <p class="font-roboto text-xs uppercase tracking-widest text-coffee mt-1">
           Tu Fonoteca Personal de Estilo Retro
@@ -196,19 +228,55 @@ const handleLogout = async () => {
           <line x1="18" y1="6" x2="6" y2="18"/>
           <line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
-        <span>{{ showTransmitter ? 'Cerrar Transmisor' : 'Transmitir Música 📻' }}</span>
+        <span>{{ showTransmitter ? 'Cerrar Transmisor' : 'Abrir Transmisor 📻' }}</span>
       </button>
     </section>
 
     <!-- Collapsible Retro Cast Section -->
     <transition name="expand">
       <div v-if="showTransmitter" class="overflow-hidden">
-        <RetroCast />
+        <RetroCast @connectionStatus="handleConnectionStatus" />
       </div>
     </transition>
 
     <!-- Playlist / Grid Grid Section -->
-    <section class="flex-1">
+    <section v-if="!(retroConnectionStatus === 'connected' && retroRole === 'receiver' && showTransmitter)" class="flex-1 flex flex-col">
+      <!-- Filter Buttons -->
+      <div class="flex flex-col sm:flex-row gap-4 mb-6">
+        <div class="flex items-center border-2 border-coffee rounded-xl overflow-hidden bg-cream shrink-0">
+          <button
+            @click="activeFilter = 'all'"
+            :class="['px-4 py-2 font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'all' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+          >
+            Todas
+          </button>
+          <button
+            @click="activeFilter = 'favorites'"
+            :class="['px-4 py-2 font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'favorites' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+          >
+            ❤️ Favoritos
+          </button>
+          <button
+            @click="activeFilter = 'playlists'"
+            :class="['px-4 py-2 font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'playlists' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+          >
+            📋 Listas
+          </button>
+        </div>
+        
+        <div v-if="activeFilter === 'playlists'" class="flex-1">
+          <select 
+            v-model="activePlaylistId"
+            class="w-full sm:w-auto pl-4 pr-10 py-2 bg-paper border-2 border-coffee rounded-xl font-roboto text-sm text-petrol outline-none focus:border-mustard cursor-pointer appearance-none"
+          >
+            <option disabled value="">Selecciona una lista...</option>
+            <option v-for="pl in libraryStore.playlists" :key="pl.id" :value="pl.id">
+              {{ pl.id }}
+            </option>
+          </select>
+        </div>
+      </div>
+
       <div v-if="libraryStore.loading && libraryStore.songs.length === 0" class="flex flex-col items-center justify-center p-12 text-center">
         <!-- Retro cassettes loading wheel -->
         <div class="w-12 h-12 rounded-full border-4 border-coffee border-t-mustard animate-spin mb-4"></div>
@@ -219,9 +287,9 @@ const handleLogout = async () => {
           <circle cx="12" cy="12" r="10"/>
           <line x1="8" y1="12" x2="16" y2="12"/>
         </svg>
-        <h4 class="font-pixelify text-base font-bold text-petrol uppercase tracking-wider mb-1">Sin listas o canciones</h4>
+        <h4 class="font-pixelify text-base font-bold text-petrol uppercase tracking-wider mb-1">Sin resultados</h4>
         <p class="font-roboto text-xs text-coffee max-w-sm">
-          No hay canciones en la fonoteca. Habilita el modo receptor y transmite una carpeta de música desde tu teléfono celular.
+          No hay canciones para mostrar con el filtro actual.
         </p>
       </div>
       <div v-else>

@@ -37,6 +37,24 @@ export const usePlayerStore = defineStore('player', () => {
   })
 
   // Actions
+  function updateMediaSession() {
+    if ('mediaSession' in navigator && currentSong.value) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentSong.value.title,
+        artist: currentSong.value.artist,
+        album: 'Vintage Player',
+        artwork: currentSong.value.coverUrl ? [
+          { src: currentSong.value.coverUrl, sizes: '512x512' }
+        ] : []
+      })
+
+      navigator.mediaSession.setActionHandler('play', play)
+      navigator.mediaSession.setActionHandler('pause', pause)
+      navigator.mediaSession.setActionHandler('previoustrack', prevTrack)
+      navigator.mediaSession.setActionHandler('nexttrack', nextTrack)
+    }
+  }
+
   function loadSong(song: Song, customPlaylist?: Song[]) {
     if (customPlaylist) {
       playlist.value = customPlaylist
@@ -47,6 +65,7 @@ export const usePlayerStore = defineStore('player', () => {
     currentTime.value = 0
     duration.value = song.duration // Use Firestore duration as initial fallback
 
+    updateMediaSession()
     play()
   }
 
@@ -68,6 +87,16 @@ export const usePlayerStore = defineStore('player', () => {
   function pause() {
     audio.pause()
     isPlaying.value = false
+  }
+
+  function stop() {
+    audio.pause()
+    audio.currentTime = 0
+    isPlaying.value = false
+    currentSong.value = null
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = null
+    }
   }
 
   function togglePlay() {
@@ -138,6 +167,7 @@ export const usePlayerStore = defineStore('player', () => {
     loadSong,
     play,
     pause,
+    stop,
     togglePlay,
     seek,
     setVolume,

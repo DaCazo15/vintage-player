@@ -134,6 +134,11 @@ export function useRetroCast() {
     availableSongs.value = {}
     downloadProgress.value = {}
     remoteManifest.value = []
+
+    // Stop playback if playing a remote song
+    if (playerStore.currentSong?.id?.toString().startsWith('webrtc-')) {
+      playerStore.stop()
+    }
   }
 
   onUnmounted(() => {

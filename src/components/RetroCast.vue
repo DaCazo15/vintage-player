@@ -1,7 +1,12 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { useRetroCast } from '@/composables/useRetroCast'
 import RetroCastSender from './RetroCastSender.vue'
 import RetroCastReceiver from './RetroCastReceiver.vue'
+
+const emit = defineEmits<{
+  (e: 'connectionStatus', status: string, role: string): void
+}>()
 
 const {
   role,
@@ -20,6 +25,10 @@ const {
   startSender,
   cleanup
 } = useRetroCast()
+
+watch([connectionStatus, role], ([newStatus, newRole]) => {
+  emit('connectionStatus', newStatus, newRole)
+}, { immediate: true })
 </script>
 
 <template>

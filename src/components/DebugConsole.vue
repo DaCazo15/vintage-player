@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isOpen" class="fixed inset-0 bg-black/95 z-[9999] p-4 flex flex-col text-xs font-mono overflow-hidden" style="color: #0f0;">
+  <div v-if="isOpen" class="fixed inset-0 bg-black/95 z-9999 p-4 flex flex-col text-xs font-mono overflow-hidden" style="color: #0f0;">
     <div class="flex justify-between items-center mb-2 pb-2 border-b border-gray-700">
       <h2 class="text-white font-bold text-lg">🐞 Debug Console</h2>
       <button @click="isOpen = false" class="text-white bg-red-600 px-3 py-1 rounded font-bold">CERRAR</button>
@@ -15,7 +15,7 @@
     </div>
     <button @click="logs = []" class="mt-2 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded w-full font-bold">LIMPIAR</button>
   </div>
-  <button v-else @click="isOpen = true" class="fixed bottom-4 right-4 bg-red-600 text-white p-3 rounded-full z-[9998] shadow-lg opacity-50 hover:opacity-100 font-bold flex items-center justify-center h-12 w-12">
+  <button v-else @click="isOpen = true" class="fixed bottom-4 right-4 bg-red-600 text-white p-3 rounded-full z-9998 shadow-lg opacity-50 hover:opacity-100 font-bold flex items-center justify-center h-12 w-12">
     🐞
   </button>
 </template>
