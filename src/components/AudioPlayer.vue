@@ -5,6 +5,19 @@ import { gsap } from 'gsap'
 import { animate } from 'animejs'
 import { MorphIcon } from 'morphicons/vue'
 import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX } from 'lucide'
+import { usePlatform } from '@/composables/usePlatform'
+import { useDpadNavigation } from '@/composables/useDpadNavigation'
+
+const { isTV } = usePlatform()
+const { handleDpadKeyDown } = useDpadNavigation()
+
+const onButtonKeyDown = (e: KeyboardEvent) => {
+  if (!isTV.value) return
+  
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    handleDpadKeyDown(e)
+  }
+}
 
 const playerStore = usePlayerStore()
 
@@ -175,7 +188,8 @@ const handleNextClick = () => {
             ref="prevBtn"
             type="button"
             @click="handlePrevClick"
-            class="w-8 h-8 rounded-full border border-coffee flex items-center justify-center bg-cream hover:bg-paper text-petrol cursor-pointer transition-colors"
+            @keydown="onButtonKeyDown"
+            class="w-8 h-8 rounded-full border border-coffee flex items-center justify-center bg-cream hover:bg-paper text-petrol cursor-pointer transition-colors focus:outline-none"
             aria-label="Canción anterior"
             title="Anterior"
           >
@@ -187,7 +201,8 @@ const handleNextClick = () => {
             ref="playBtn"
             type="button"
             @click="handlePlayClick"
-            class="w-11 h-11 rounded-full border-2 border-coffee flex items-center justify-center bg-mustard hover:bg-terracotta text-cream cursor-pointer transition-colors"
+            @keydown="onButtonKeyDown"
+            class="w-11 h-11 rounded-full border-2 border-coffee flex items-center justify-center bg-mustard hover:bg-terracotta text-cream cursor-pointer transition-colors focus:outline-none"
             :aria-label="playerStore.isPlaying ? 'Pausar reproducción' : 'Iniciar reproducción'"
             title="Reproducir / Pausar"
           >
@@ -204,7 +219,8 @@ const handleNextClick = () => {
             ref="nextBtn"
             type="button"
             @click="handleNextClick"
-            class="w-8 h-8 rounded-full border border-coffee flex items-center justify-center bg-cream hover:bg-paper text-petrol cursor-pointer transition-colors"
+            @keydown="onButtonKeyDown"
+            class="w-8 h-8 rounded-full border border-coffee flex items-center justify-center bg-cream hover:bg-paper text-petrol cursor-pointer transition-colors focus:outline-none"
             aria-label="Siguiente canción"
             title="Siguiente"
           >
@@ -224,7 +240,8 @@ const handleNextClick = () => {
             :max="playerStore.duration || 1"
             :value="playerStore.currentTime"
             @input="handleSeek"
-            class="progress-slider w-full h-2 rounded-full appearance-none cursor-pointer outline-none border border-coffee"
+            @keydown="onButtonKeyDown"
+            class="progress-slider w-full h-2 rounded-full appearance-none cursor-pointer outline-none border border-coffee focus:outline-none"
             :style="{
               background: `linear-gradient(to right, var(--color-mustard) ${progressPercentage}%, rgba(92,61,46,0.15) ${progressPercentage}%)`
             }"
@@ -241,7 +258,8 @@ const handleNextClick = () => {
         <button
           type="button"
           @click="toggleMute"
-          class="text-coffee hover:text-terracotta cursor-pointer transition-colors"
+          @keydown="onButtonKeyDown"
+          class="text-coffee hover:text-terracotta cursor-pointer transition-colors focus:outline-none"
           :aria-label="playerStore.volume > 0 ? 'Silenciar sonido' : 'Activar sonido'"
           title="Silenciar / Activar sonido"
         >
@@ -260,7 +278,8 @@ const handleNextClick = () => {
           step="0.01"
           :value="playerStore.volume"
           @input="handleVolumeChange"
-          class="volume-slider w-20 sm:w-24 h-1.5 rounded-full appearance-none cursor-pointer outline-none border border-coffee/60"
+          @keydown="onButtonKeyDown"
+          class="volume-slider w-20 sm:w-24 h-1.5 rounded-full appearance-none cursor-pointer outline-none border border-coffee/60 focus:outline-none"
           :style="{
             background: `linear-gradient(to right, var(--color-mustard) ${volumePercentage}%, rgba(92,61,46,0.15) ${volumePercentage}%)`
           }"
@@ -303,5 +322,13 @@ input[type='range']::-moz-range-thumb {
 input[type='range']::-moz-range-thumb:hover {
   transform: scale(1.2);
   background: var(--color-terracotta);
+}
+
+button:focus,
+button:focus-visible,
+input[type="range"]:focus,
+input[type="range"]:focus-visible {
+  outline: 3px solid var(--color-mustard) !important;
+  outline-offset: 2px;
 }
 </style>

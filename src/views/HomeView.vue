@@ -12,6 +12,7 @@ import RetroCast from '@/components/RetroCast.vue'
 const authStore = useAuthStore()
 const libraryStore = useLibraryStore()
 const router = useRouter()
+console.log('UID celular:', authStore.user?.uid, 'email:', authStore.user?.email)
 
 const showTransmitter = ref(false)
 const searchQuery = ref('')

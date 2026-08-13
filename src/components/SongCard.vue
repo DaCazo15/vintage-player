@@ -5,6 +5,8 @@ import { useLibraryStore } from '@/stores/libraryStore'
 import { animate } from 'animejs'
 import { MorphIcon } from 'morphicons/vue'
 import { HeartEmpty, HeartFilled } from '@/assets/brandIcons'
+import { usePlatform } from '@/composables/usePlatform'
+import { useDpadNavigation } from '@/composables/useDpadNavigation'
 
 const props = defineProps<{
   song: Song
@@ -18,6 +20,41 @@ const emit = defineEmits<{
 const libraryStore = useLibraryStore()
 const favBtn = ref<HTMLElement | null>(null)
 const deleteBtn = ref<HTMLElement | null>(null)
+
+const { isTV } = usePlatform()
+const { handleDpadKeyDown } = useDpadNavigation()
+const cardEl = ref<HTMLElement | null>(null)
+
+const handleFocus = () => {
+  if (isTV.value && cardEl.value) {
+    animate(cardEl.value, {
+      scale: 1.05,
+      duration: 150,
+      ease: 'outQuad'
+    })
+  }
+}
+
+const handleBlur = () => {
+  if (isTV.value && cardEl.value) {
+    animate(cardEl.value, {
+      scale: 1.0,
+      duration: 150,
+      ease: 'outQuad'
+    })
+  }
+}
+
+const onKeyDown = (e: KeyboardEvent) => {
+  if (!isTV.value) return
+  
+  if (e.key === 'Enter') {
+    emit('play', props.song)
+    e.preventDefault()
+  } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    handleDpadKeyDown(e)
+  }
+}
 
 // Format duration helper (sec -> mm:ss)
 const formatDuration = (seconds: number) => {
@@ -69,7 +106,12 @@ const handleDeleteClick = async () => {
 
 <template>
   <div
-    class="song-card select-none bg-paper border-2 border-coffee rounded-2xl p-4 flex gap-4 items-center shadow-[4px_4px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all duration-200"
+    ref="cardEl"
+    :tabindex="isTV ? 0 : -1"
+    @focus="handleFocus"
+    @blur="handleBlur"
+    @keydown="onKeyDown"
+    class="song-card select-none bg-paper border-2 border-coffee rounded-2xl p-4 flex gap-4 items-center shadow-[4px_4px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all duration-200 focus:outline-none"
     :class="{ 'border-mustard ring-2 ring-mustard/40 bg-cream/10': isActive }"
   >
     <!-- Cover Art / Cassette Placeholder -->
@@ -156,3 +198,11 @@ const handleDeleteClick = async () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.song-card:focus,
+.song-card:focus-visible {
+  outline: 3px solid var(--color-mustard) !important;
+  outline-offset: 2px;
+}
+</style>

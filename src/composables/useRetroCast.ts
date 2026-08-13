@@ -10,6 +10,22 @@ import {
   arrayUnion
 } from 'firebase/firestore'
 
+const ICE_SERVERS: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelay',
+      credential: 'openrelay'
+    }
+  ]
+}
+
 export function useRetroCast() {
   const authStore = useAuthStore()
   const playerStore = usePlayerStore()
@@ -38,6 +54,25 @@ export function useRetroCast() {
   let peerConnection: RTCPeerConnection | null = null
   let dataChannel: RTCDataChannel | null = null
   let unsubscribeFirestore: (() => void) | null = null
+  let connectionTimeoutId: any = null
+
+  function startConnectionTimeout() {
+    clearConnectionTimeout()
+    connectionTimeoutId = window.setTimeout(() => {
+      if (connectionStatus.value !== 'connected') {
+        errorMessage.value = 'La conexión P2P está tardando demasiado y ha fallado. Por favor, asegúrate de que ambos dispositivos están conectados a la misma red y que el aislamiento de puntos de acceso (AP Isolation) de tu router no está activado.'
+        connectionStatus.value = 'disconnected'
+        cleanup()
+      }
+    }, 15000)
+  }
+
+  function clearConnectionTimeout() {
+    if (connectionTimeoutId) {
+      window.clearTimeout(connectionTimeoutId)
+      connectionTimeoutId = null
+    }
+  }
 
   // Chunks accumulators
   const receivedChunks: ArrayBuffer[] = []
@@ -122,6 +157,7 @@ export function useRetroCast() {
 
   // Clean up connections and listeners
   function cleanup() {
+    clearConnectionTimeout()
     if (unsubscribeFirestore) {
       unsubscribeFirestore()
       unsubscribeFirestore = null
@@ -165,6 +201,7 @@ export function useRetroCast() {
     errorMessage.value = null
 
     const uid = authStore.user?.uid
+    console.log('[RECEIVER/PC] uid:', uid, 'email:', authStore.user?.email, 'isInitialized:', authStore.isInitialized)
     if (!uid) {
       errorMessage.value = 'Debes iniciar sesión para conectar.'
       connectionStatus.value = 'disconnected'
@@ -200,9 +237,8 @@ export function useRetroCast() {
   }
 
   async function createReceiverPeerConnection(offerData: any, sigDocRef: any) {
-    peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    })
+    peerConnection = new RTCPeerConnection(ICE_SERVERS)
+    startConnectionTimeout()
 
     // Send local ICE candidates to sender
     peerConnection.onicecandidate = async (event) => {
@@ -217,6 +253,7 @@ export function useRetroCast() {
       if (peerConnection) {
         if (peerConnection.connectionState === 'connected') {
           connectionStatus.value = 'connected'
+          clearConnectionTimeout()
         } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
           connectionStatus.value = 'disconnected'
           cleanup()
@@ -259,6 +296,7 @@ export function useRetroCast() {
     channel.onopen = () => {
       connectionStatus.value = 'connected'
       transferStatus.value = 'idle'
+      clearConnectionTimeout()
     }
 
     channel.onclose = () => {
@@ -342,6 +380,7 @@ export function useRetroCast() {
     errorMessage.value = null
 
     const uid = authStore.user?.uid
+    console.log('[SENDER/CEL] uid:', uid, 'email:', authStore.user?.email, 'isInitialized:', authStore.isInitialized)
     if (!uid) {
       errorMessage.value = 'Debes iniciar sesión para conectar.'
       connectionStatus.value = 'disconnected'
@@ -351,9 +390,33 @@ export function useRetroCast() {
     const sigDocRef = doc(db, 'users', uid, 'signaling', 'webrtc')
     await deleteDoc(sigDocRef).catch(() => {})
 
-    peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    unsubscribeFirestore = onSnapshot(sigDocRef, async (snapshot) => {
+      if (!snapshot.exists()) return
+      const data = snapshot.data()
+
+      if (!peerConnection) return
+
+      if (data.answer && !peerConnection.currentRemoteDescription) {
+        try {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer))
+        } catch (e) {
+          console.error('[SENDER/CEL] Error setting remote description:', e)
+        }
+      }
+
+      if (data.receiverCandidates) {
+        for (const candidate of data.receiverCandidates) {
+          try {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+          } catch (e) {
+            console.warn('[SENDER/CEL] Error adding receiver ICE candidate:', e)
+          }
+        }
+      }
     })
+
+    peerConnection = new RTCPeerConnection(ICE_SERVERS)
+    startConnectionTimeout()
 
     // Create order-preserving transfer channel
     const channel = peerConnection.createDataChannel('audio-transfer', {
@@ -373,6 +436,7 @@ export function useRetroCast() {
       if (peerConnection) {
         if (peerConnection.connectionState === 'connected') {
           connectionStatus.value = 'connected'
+          clearConnectionTimeout()
         } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
           connectionStatus.value = 'disconnected'
           cleanup()
@@ -385,33 +449,12 @@ export function useRetroCast() {
       await peerConnection.setLocalDescription(offer)
 
       await setDoc(sigDocRef, {
-        offer: {
-          type: offer.type,
-          sdp: offer.sdp
-        }
+        offer: { type: offer.type, sdp: offer.sdp }
       }, { merge: true })
+      console.log('[SENDER/CEL] offer escrito OK en Firestore')
 
-      // Await Receiver answer & candidates
-      unsubscribeFirestore = onSnapshot(sigDocRef, async (snapshot) => {
-        if (!snapshot.exists()) return
-        const data = snapshot.data()
-
-        if (data.answer && peerConnection && !peerConnection.currentRemoteDescription) {
-          await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer))
-        }
-
-        if (data.receiverCandidates && peerConnection) {
-          for (const candidate of data.receiverCandidates) {
-            try {
-              await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
-            } catch (e) {
-              console.warn('Error adding receiver ICE candidate:', e)
-            }
-          }
-        }
-      })
-    } catch (err: any) {
-      console.error('Error starting sender connection:', err)
+} catch (err: any) {
+  console.error('[SENDER/CEL] FALLO al escribir offer:', err)
       errorMessage.value = 'No se pudo iniciar la transmisión.'
       cleanup()
       connectionStatus.value = 'disconnected'
@@ -424,6 +467,7 @@ export function useRetroCast() {
     channel.onopen = () => {
       connectionStatus.value = 'connected'
       sendFile()
+      clearConnectionTimeout()
     }
 
     channel.onclose = () => {
