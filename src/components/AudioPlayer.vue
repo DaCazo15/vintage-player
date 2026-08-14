@@ -4,15 +4,18 @@ import { usePlayerStore } from '@/stores/playerStore'
 import { gsap } from 'gsap'
 import { animate } from 'animejs'
 import { MorphIcon } from 'morphicons/vue'
-import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Heart, Plus, Shuffle, Repeat, Repeat1, ListMusic } from 'lucide'
+import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Heart, Plus, Shuffle, Repeat, Repeat1, ListMusic, HelpCircle } from 'lucide'
 import { usePlatform } from '@/composables/usePlatform'
 import { useDpadNavigation } from '@/composables/useDpadNavigation'
 import { useLibraryStore } from '@/stores/libraryStore'
 import PlaylistModal from './PlaylistModal.vue'
 import QueuePanel from './QueuePanel.vue'
 import AudioVisualizer from '@/components/AudioVisualizer.vue'
+import { globalDownloadProgress } from '@/composables/useRetroCast'
+import { useTutorials } from '@/composables/useTutorials'
 
 const { isTV } = usePlatform()
+const { startPlayerTutorial } = useTutorials()
 const { handleDpadKeyDown } = useDpadNavigation()
 
 const onButtonKeyDown = (e: KeyboardEvent) => {
@@ -66,6 +69,21 @@ const formatTime = (seconds: number) => {
 const progressPercentage = computed(() => {
   if (!playerStore.duration) return 0
   return (playerStore.currentTime / playerStore.duration) * 100
+})
+
+// Calculate the percentage of the download buffer filled
+const currentDownloadPercentage = computed(() => {
+  const song = playerStore.currentSong
+  if (!song || !song.id) return 0
+  if (song.id.toString().startsWith('webrtc-')) {
+    const idx = parseInt(song.id.toString().split('-')[1])
+    const p = globalDownloadProgress.value[idx]
+    if (p !== undefined) return p
+    // If it's not currently downloading but exists in the store with an audioUrl, it's likely finished
+    if (song.audioUrl) return 100
+    return 0
+  }
+  return 100
 })
 
 // Calculate the percentage of the volume bar filled
@@ -289,18 +307,23 @@ const handleNextClick = () => {
             {{ formatTime(playerStore.currentTime) }}
           </span>
 
-          <input
-            type="range"
-            min="0"
-            :max="playerStore.duration || 1"
-            :value="playerStore.currentTime"
-            @input="handleSeek"
-            @keydown="onButtonKeyDown"
-            class="progress-slider w-full h-2 rounded-full appearance-none cursor-pointer outline-none border border-coffee focus:outline-none"
-            :style="{
-              background: `linear-gradient(to right, var(--color-mustard) ${progressPercentage}%, rgba(92,61,46,0.15) ${progressPercentage}%)`
-            }"
-          />
+          <div class="relative w-full h-2 flex items-center">
+            <div class="absolute inset-0 bg-coffee/15 rounded-full overflow-hidden border border-coffee pointer-events-none">
+              <div class="h-full bg-coffee/30 transition-all duration-200" :style="{ width: currentDownloadPercentage + '%' }"></div>
+            </div>
+            <input
+              type="range"
+              min="0"
+              :max="playerStore.duration || 1"
+              :value="playerStore.currentTime"
+              @input="handleSeek"
+              @keydown="onButtonKeyDown"
+              class="progress-slider w-full h-2 rounded-full appearance-none cursor-pointer outline-none focus:outline-none relative z-10 bg-transparent"
+              :style="{
+                background: `linear-gradient(to right, var(--color-mustard) ${progressPercentage}%, transparent ${progressPercentage}%)`
+              }"
+            />
+          </div>
 
           <span class="font-roboto text-[10px] text-coffee/80 font-bold w-8 text-left select-none">
             {{ formatTime(playerStore.duration) }}
@@ -341,6 +364,15 @@ const handleNextClick = () => {
             title="Cola de Reproducción"
           >
             <MorphIcon :icon="ListMusic" size="20" stroke-width="2.5" />
+          </button>
+          <!-- Tutorial button -->
+          <button 
+            @click="startPlayerTutorial" 
+            class="flex text-coffee hover:text-mustard hover:scale-110 transition-transform"
+            aria-label="Ver tutorial"
+            title="Ayuda / Tutorial"
+          >
+            <MorphIcon :icon="HelpCircle" size="20" stroke-width="2.5" />
           </button>
         </div>
         

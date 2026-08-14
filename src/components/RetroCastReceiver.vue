@@ -2,6 +2,11 @@
 import { computed } from 'vue'
 import { usePlayerStore } from '@/stores/playerStore'
 import RetroCassetteTape from './RetroCassetteTape.vue'
+import { HelpCircle } from 'lucide'
+import { useTutorials } from '@/composables/useTutorials'
+import { MorphIcon } from 'morphicons/vue'
+
+const { startReceiverTutorial } = useTutorials()
 
 const props = defineProps<{
   connectionStatus: 'disconnected' | 'connecting' | 'connected'
@@ -142,23 +147,32 @@ const isSyncComplete = computed(() => {
         </div>
       </div>
 
-      <!-- Action Button -->
-      <button
-        v-if="connectionStatus === 'disconnected'"
-        type="button"
-        @click="$emit('startReceiver')"
-        class="px-6 py-2.5 bg-mustard hover:bg-terracotta text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer uppercase tracking-wider text-xs"
-      >
-        Habilitar Recepción
-      </button>
-      <button
-        v-else
-        type="button"
-        @click="$emit('cleanup')"
-        class="px-6 py-2.5 bg-cream hover:bg-paper text-petrol font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer uppercase tracking-wider text-xs"
-      >
-        Desconectar
-      </button>
+      <div class="flex items-center justify-center gap-4">
+        <button
+          v-if="connectionStatus === 'disconnected'"
+          type="button"
+          @click="$emit('startReceiver')"
+          class="flex-1 px-6 py-2.5 bg-mustard hover:bg-terracotta text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer uppercase tracking-wider text-xs"
+        >
+          Habilitar Recepción
+        </button>
+        <button
+          v-else
+          type="button"
+          @click="$emit('cleanup')"
+          class="flex-1 px-6 py-2.5 bg-cream hover:bg-paper text-petrol font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer uppercase tracking-wider text-xs"
+        >
+          Desconectar
+        </button>
+
+        <button 
+          @click="startReceiverTutorial" 
+          class="px-3 py-2.5 bg-paper hover:bg-cream text-petrol font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer flex items-center gap-1"
+          title="Tutorial de Recepción"
+        >
+          <MorphIcon :icon="HelpCircle" size="18" stroke-width="2.5" />
+        </button>
+      </div>
     </div>
 
     <!-- Sync All Blocking Modal -->

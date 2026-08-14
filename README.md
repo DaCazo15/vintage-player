@@ -1,23 +1,31 @@
-# Vintage Player 📻
+<div align="center">
+  <img src="public/logo.png" width="150" alt="Vintage Player Logo">
+  <h1>Vintage Player 📻</h1>
+  <p><strong>Tu Fonoteca Personal de Estilo Retro | P2P Local Audio Streaming</strong></p>
+</div>
 
 [![Vue 3](https://img.shields.io/badge/Vue-3.x-4fc08d?style=for-the-badge&logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-06b6d4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Firebase](https://img.shields.io/badge/Firebase-Auth%2C%20Firestore%2C%20Storage-ffca28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com/)
-
-**Vintage Player** es una aplicación web personal de reproducción y biblioteca musical retro con estética analógica, que utiliza Firebase para la persistencia de datos y almacenamiento de audio.
-
-<!-- [PLACEHOLDER: Inserta una captura de pantalla o GIF animado aquí para mostrar la estética vintage de la aplicación] -->
+[![Firebase](https://img.shields.io/badge/Firebase-Auth%2C%20Firestore-ffca28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com/)
+[![WebRTC](https://img.shields.io/badge/WebRTC-P2P%20Streaming-333333?style=for-the-badge&logo=webrtc&logoColor=white)](https://webrtc.org/)
 
 ---
 
-## 🚀 Características Principales
+## 🌟 ¿Qué es Vintage Player?
 
-*   **Autenticación Multiusuario**: Registro e inicio de sesión seguro con correo electrónico/contraseña y proveedores sociales (Google y GitHub).
-*   **Biblioteca en Tiempo Real**: Sincronización instantánea de metadatos mediante Firestore listeners aislados a nivel de usuario.
-*   **Subida con Barra de Progreso**: Subida de audios y portadas personalizadas a Storage, estimando la duración exacta en milisegundos en el cliente y animando el progreso con GSAP.
-*   **Reproductor Fijo Persistente**: Barra de control inferior unificada sobre un singleton `HTMLAudioElement` que permite navegar por la app sin interrumpir la música.
-*   **Estética Vintage & Premium**: Diseñada meticulosamente en base a Tailwind CSS v4, con tipografías retro, sombras de bloque desplazadas, transiciones GSAP y micro-interacciones interactivas con Anime.js.
-*   **Acciones Accesibles**: Todos los botones de solo icono cuentan con etiquetas `aria-label` descriptivas y morphicons responsivos.
+**Vintage Player** no es solo un reproductor de música; es una **alternativa de código abierto (Open Source) verdaderamente libre a servicios comerciales como Spotify**. 
+
+En lugar de depender de servidores costosos, almacenamiento en la nube infinito o algoritmos de recomendación cerrados, Vintage Player aprovecha la potencia de tus propios dispositivos. Utilizando **WebRTC**, la aplicación permite que tu teléfono celular funcione como el servidor de tu música (transmitiendo los archivos locales que tienes guardados), y tu PC u otros dispositivos actúen como receptores y reproductores de alta fidelidad, todo bajo una interfaz exquisita con temática vintage, sombras pronunciadas y micro-interacciones suaves.
+
+### 💡 ¿Por qué es una solución viable frente a Spotify?
+1. **100% Gratuito y Privado:** No hay suscripciones. Tu música es tuya, la compartes de tu móvil a tu PC en tu red local. Nadie rastrea lo que escuchas.
+2. **Cero Latencia en Red Local:** Al usar WebRTC Data Channels, la transferencia de audio es instantánea (P2P directo) sin pasar por servidores intermedios.
+3. **Calidad Original:** A diferencia de Spotify que comprime el audio para ahorrar ancho de banda, Vintage Player transfiere tus archivos (FLAC, WAV, MP3 de alto bitrate) exactamente como los tienes.
+4. **Almacenamiento Descentralizado:** En lugar de pagar por un servidor en la nube para alojar tu biblioteca, tu dispositivo móvil actualiza en tiempo real el *manifest* de canciones disponibles a todos los clientes conectados.
+
+### 🎧 Compresión y Transferencia de Audio
+La aplicación no recompila ni degrada el audio. Emplea la tecnología de **WebRTC (RTCDataChannel)** enviando los archivos en fragmentos pequeños (*chunks*) de 64 KB de manera secuencial y ordenada.
+Al recibirse en el destino, el archivo se reensambla en un `Blob` de audio puro. Para dispositivos con capacidad (como una PC), la aplicación utiliza IndexedDB (`idb-keyval`) para "cachear" temporalmente gigabytes de tu música, permitiéndote cerrar el origen y seguir escuchando en modo offline.
 
 ---
 
@@ -25,88 +33,73 @@
 
 | Tecnología | Rol en el Proyecto |
 | :--- | :--- |
-| **Vue 3 (Composition API)** | Framework core y estructuración reactiva con `<script setup>`. |
-| **TypeScript** | Tipado estricto en stores, componentes y configuraciones de enrutamiento. |
+| **Vue 3 (Composition API)** | Framework core para UI y lógica reactiva. |
+| **TypeScript** | Tipado estricto para escalar la base de código sin errores. |
 | **Tailwind CSS v4** | Sistema de diseño, tokens de color vintage y estilos globales. |
-| **Pinia** | Gestión de estados globales desacoplados (Auth, Player y Library). |
-| **Vite + Rolldown** | Entorno de desarrollo rápido y bundler ESM optimizado. |
-| **Firebase Services** | Firebase Auth (sesión), Firestore (metadatos) y Cloud Storage (media files). |
-| **GSAP** | Animaciones físicas de transiciones de subidor y entrada de tarjetas staggered. |
-| **Anime.js v4** | Micro-interacciones de pulso en botones e interacciones táctiles elásticas. |
-| **Morphicons** | Iconos vectoriales compatibles con Lucide que transicionan suavemente sus SVG. |
+| **Pinia** | Gestión del estado del reproductor y la biblioteca. |
+| **WebRTC & Firebase** | Firebase hace de *Señalizador (Signaling Server)* para que los dispositivos se encuentren, y WebRTC hace la magia P2P directa. |
+| **Driver.js** | Tutoriales interactivos paso a paso en toda la aplicación. |
+| **GSAP & Anime.js** | Animaciones fluidas, elásticas y precisas. |
 
 ---
 
-## 📂 Estructura de Carpetas
+## 📂 Estructura del Proyecto
 
-```
+```text
 src/
-├── assets/          # Estilos base, fuentes y definición de vectores (Google, GitHub, Hearts)
-├── components/      # UI Cards y Consolas (AudioPlayer, FileUploader, SongCard, SongList)
-├── composables/     # Lógica reutilizable de Vue (useAudioMetadata para leer duración de pistas)
-├── firebase/        # Inicialización de servicios e interfaces de datos de Firebase
-├── router/          # Enrutamiento de vistas y Guards de seguridad de acceso
-├── stores/          # Estados de Pinia (authStore, libraryStore, playerStore)
-└── views/           # Páginas de inicio y formularios de acceso (HomeView, LoginView, SignupView)
+├── assets/          # Estilos base, fuentes e íconos.
+├── components/      # UI Cards, Reproductor y Módulos WebRTC (RetroCast).
+├── composables/     # Hooks lógicos (useRetroCast para WebRTC, useTutorials).
+├── firebase/        # Inicialización de servicios de señalización.
+├── router/          # Enrutamiento de vistas.
+├── stores/          # Estados globales de Pinia.
+└── views/           # Páginas de inicio y autenticación.
 ```
 
 ---
 
-## ⚙️ Instalación y Puesta en Marcha
+## ⚙️ Cómo Implementarlo
 
-Sigue estos sencillos pasos para levantar el proyecto en menos de 5 minutos:
+Sigue estos pasos para levantar tu propia instancia de Vintage Player:
 
-### 1. Clonar e Instalar Dependencias
+### 1. Clonar e Instalar
 ```bash
 git clone https://github.com/tu-usuario/vintage-player.git
 cd vintage-player
 npm install
 ```
 
-### 2. Configurar Firebase
-1. Ve a la [Consola de Firebase](https://console.firebase.google.com/) y crea un nuevo proyecto.
-2. Habilita los siguientes servicios:
-   *   **Authentication**: Activa el proveedor de Correo/Contraseña, Google y GitHub (este último requiere configurar las credenciales OAuth en GitHub).
-   *   **Firestore Database**: Crea la base de datos en modo producción.
-   *   **Cloud Storage**: Inicializa el cubo de almacenamiento por defecto.
-3. Copia el archivo `.env.example` como `.env` y rellena las variables de entorno con la configuración de tu aplicación web de Firebase:
-   ```bash
-   cp .env.example .env
-   ```
-
-### 3. Desplegar Reglas de Seguridad
-Asegúrate de tener instalado `firebase-tools` globalmente (`npm install -g firebase-tools`). Inicia sesión y despliega las reglas de seguridad locales que aíslan los datos de cada usuario:
+### 2. Configurar Firebase (Signaling Server)
+Solo necesitas Firebase para la etapa inicial de "apretón de manos" entre dispositivos.
+1. Crea un proyecto en [Firebase Console](https://console.firebase.google.com/).
+2. Habilita **Firestore Database** y **Authentication** (Email/Password).
+3. Copia `.env.example` a `.env` y rellena tus claves de Firebase.
+4. Despliega las reglas de seguridad:
 ```bash
 firebase login
-firebase deploy --only firestore:rules,storage:rules
+firebase deploy --only firestore:rules
 ```
 
-### 4. Lanzar Servidor de Desarrollo
+### 3. Lanzar Servidor de Desarrollo
 ```bash
-npm run dev
+npm run dev -- --host
 ```
-Para probar la aplicación directamente desde tu celular en la misma red local Wi-Fi, abre el navegador de tu dispositivo móvil y accede a la dirección IP indicada en tu terminal (gracias al flag `--host` habilitado en Vite).
+> **Nota:** El parámetro `--host` es crucial. Te permitirá acceder a la aplicación desde tu celular conectándote a la IP local de tu PC (Ej: `http://192.168.1.15:5173`).
 
 ---
 
-## 📜 Scripts Disponibles
+## 🤝 Futuras Colaboraciones (Contribuir)
 
-*   `npm run dev`: Levanta el servidor de desarrollo local con soporte host.
-*   `npm run build`: Compila y optimiza la aplicación para producción en la carpeta `/dist` utilizando `vue-tsc` para chequeo de tipos.
-*   `npm run preview`: Sirve localmente el bundle compilado en producción para validaciones rápidas.
-*   `npm run cleanup:storage`: Ejecuta una herramienta de mantenimiento manual para el dueño del proyecto que revisa en Firebase Storage si existen archivos huérfanos (audios/portadas que no tengan ningún documento de Firestore asociado) y los elimina. Requiere `service-account-key.json` en la raíz.
+¡Vintage Player es de código abierto y nos encantaría recibir tu ayuda para que siga creciendo! Algunas áreas donde buscamos colaboración:
+- **Soporte PWA Completo:** Mejorar el Service Worker para controlar la reproducción puramente offline y soporte para instalación nativa.
+- **Ecualizador Visual Web Audio API:** Contribuir con canvas o SVG basados en analizadores de frecuencia.
+- **Soporte para Letras Sincronizadas (.lrc):** Añadir un módulo que lea y muestre letras tipo karaoke.
+- **Transferencia Móvil-a-Móvil:** Mejorar la interfaz para compartir librerías entre dos celulares en la misma red Wi-Fi.
 
----
-
-## 🗺️ Roadmap de Mejoras
-
-- [ ] **Playlists Personalizadas**: Crear, renombrar y ordenar colecciones de pistas personalizadas.
-- [ ] **Modo Offline**: Soporte para caché de audio local y Service Workers (PWA) para reproducir música sin conexión.
-- [ ] **Letras Sincronizadas**: Soporte para archivos `.lrc` que muestren las letras de las canciones en tiempo real con efecto karaoke.
-- [ ] **Ecualizador Visual Vintage**: Un ecualizador analógico de agujas o analizador de espectro de barras animado en base a frecuencias Web Audio API.
+Si tienes una idea, ¡abre un Issue o envía un Pull Request! Toda ayuda es bienvenida.
 
 ---
 
-## 📄 Licencia
-
-Este proyecto está bajo la Licencia **MIT**. Puedes usarlo de forma libre y gratuita.
+<div align="center">
+  <p>Creado con ❤️ para los amantes de la música y la privacidad.</p>
+</div>

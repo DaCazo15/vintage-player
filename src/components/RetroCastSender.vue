@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   connectionStatus: 'disconnected' | 'connecting' | 'connected'
   localSongs: File[]
   folderName: string
@@ -15,6 +15,12 @@ const emit = defineEmits<{
   (e: 'startSender'): void
 }>()
 
+import { HelpCircle } from 'lucide'
+import { useTutorials } from '@/composables/useTutorials'
+import { MorphIcon } from 'morphicons/vue'
+
+const { startSenderTutorial } = useTutorials()
+
 const folderInput = ref<HTMLInputElement | null>(null)
 
 const triggerSelect = () => {
@@ -23,6 +29,34 @@ const triggerSelect = () => {
 
 const onFolderSelect = (e: Event) => {
   emit('selectFolder', e)
+}
+
+import { computed } from 'vue'
+
+const activeUploads = computed(() => {
+  const ids = Object.keys(props.uploadProgress).map(Number)
+  return ids.filter(id => {
+    const p = props.uploadProgress[id]
+    return p !== undefined && p < 100
+  })
+})
+
+const isUploading = computed(() => activeUploads.value.length > 0)
+
+const uploadOverallProgress = computed(() => {
+  if (activeUploads.value.length === 0) return 0
+  let total = 0
+  activeUploads.value.forEach(id => {
+    total += props.uploadProgress[id] || 0
+  })
+  return Math.round(total / activeUploads.value.length)
+})
+
+const cancelUpload = () => {
+  if (folderInput.value) {
+    folderInput.value.value = ''
+  }
+  emit('changeFolder')
 }
 </script>
 
@@ -41,10 +75,17 @@ const onFolderSelect = (e: Event) => {
       <span class="font-roboto text-sm text-petrol font-bold mb-1">
         Seleccionar carpeta de música
       </span>
-      <span class="font-roboto text-xs text-coffee">
-        Busca y carga todas tus canciones locales
-      </span>
-    </div>
+          <span class="font-roboto text-[10px] text-coffee">
+            Busca y carga todas tus canciones locales
+          </span>
+          <button 
+            @click.stop="startSenderTutorial" 
+            class="mt-4 px-3 py-1.5 bg-paper hover:bg-cream text-petrol font-roboto text-[10px] font-bold border border-coffee rounded-xl shadow-[2px_2px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <MorphIcon :icon="HelpCircle" size="14" stroke-width="2.5" />
+            Tutorial
+          </button>
+        </div>
 
     <!-- Folder playlist view -->
     <div v-else class="space-y-4">
@@ -108,4 +149,47 @@ const onFolderSelect = (e: Event) => {
       </div>
     </div>
   </div>
+
+  <!-- Upload Progress Modal -->
+  <Teleport to="body">
+    <transition
+      enter-active-class="transition-opacity duration-300"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-300"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div v-if="isUploading" class="fixed inset-0 bg-petrol/90 backdrop-blur-sm z-250 flex flex-col items-center justify-center p-6 text-cream">
+        <div class="w-full max-w-md bg-paper border-4 border-coffee rounded-3xl p-6 shadow-[8px_8px_0px_0px_rgba(92,61,46,1)] text-petrol flex flex-col items-center relative">
+          <h2 class="font-pixelify text-2xl font-bold mb-2 uppercase text-center">Subiendo Archivos</h2>
+          <p class="font-roboto text-sm font-bold text-coffee mb-6 text-center">
+            Enviando pistas al PC. ¡No salgas de esta pantalla!
+          </p>
+          
+          <div class="w-full bg-cream border-2 border-coffee p-4 rounded-xl mb-6 relative overflow-hidden shadow-inner">
+            <div class="absolute inset-0 bg-mustard/20 origin-left transition-all duration-300" :style="{ transform: `scaleX(${uploadOverallProgress / 100})` }"></div>
+            
+            <div class="relative flex justify-between items-center z-10 mb-2">
+              <span class="font-pixelify text-2xl font-bold">{{ uploadOverallProgress }}%</span>
+              <span class="font-roboto text-sm font-bold text-coffee">{{ activeUploads.length }} archivo(s) en curso</span>
+            </div>
+            
+            <div class="w-full h-3 bg-coffee/20 rounded-full overflow-hidden relative z-10 border border-coffee/30">
+               <div class="h-full bg-mustard transition-all duration-300" :style="{ width: uploadOverallProgress + '%' }"></div>
+            </div>
+          </div>
+
+          <div class="flex w-full gap-4">
+            <button 
+              @click="cancelUpload" 
+              class="flex-1 py-3 bg-terracotta hover:bg-terracotta/90 text-cream font-roboto font-bold border-2 border-coffee rounded-xl shadow-[4px_4px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-1 hover:translate-y-1 transition-all cursor-pointer"
+            >
+              Cancelar (Perderás progreso)
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </Teleport>
 </template>

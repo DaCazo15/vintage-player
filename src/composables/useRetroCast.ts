@@ -28,6 +28,8 @@ const ICE_SERVERS: RTCConfiguration = {
   ]
 }
 
+export const globalDownloadProgress = ref<Record<number, number>>({})
+
 export function useRetroCast() {
   const authStore = useAuthStore()
   const playerStore = usePlayerStore()
@@ -49,7 +51,7 @@ export function useRetroCast() {
   const uploadProgress = ref<Record<number, number>>({})
 
   const remoteManifest = ref<any[]>([])
-  const downloadProgress = ref<Record<number, number>>({})
+  const downloadProgress = globalDownloadProgress
   const availableSongs = ref<Record<number, any>>({}) // fileIndex -> Song object
   const downloadQueue = ref<number[]>([])
   const activeDownloads = ref<Set<number>>(new Set())
@@ -157,6 +159,7 @@ function disableBackgroundKeepAlive() {
 }
 
   function cleanup() {
+    connectionStatus.value = 'disconnected'
     clearConnectionTimeout()
     if (unsubscribeFirestore) {
       unsubscribeFirestore()

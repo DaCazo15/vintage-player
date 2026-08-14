@@ -251,7 +251,7 @@ const handleLogout = async () => {
 
     <!-- Collapsible Retro Cast Section -->
     <transition name="expand">
-      <div v-if="showTransmitter" class="overflow-hidden">
+      <div v-show="showTransmitter" class="overflow-hidden">
         <RetroCast @connectionStatus="handleConnectionStatus" />
       </div>
     </transition>
