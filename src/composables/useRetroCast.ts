@@ -371,8 +371,8 @@ function disableBackgroundKeepAlive() {
   }
 
   function processQueue() {
-    // Aumentar a 5 descargas paralelas
-    while (activeDownloads.value.size < 5 && downloadQueue.value.length > 0) {
+    // Reducido a 3 descargas paralelas para evitar saturar el ancho de banda y desconexiones
+    while (activeDownloads.value.size < 3 && downloadQueue.value.length > 0) {
       const idx = downloadQueue.value.shift()!
       activeDownloads.value.add(idx)
       requestFile(idx, remoteManifest.value[idx])
@@ -649,14 +649,15 @@ function disableBackgroundKeepAlive() {
         const buffer = e.target?.result as ArrayBuffer
         if (!buffer) return
 
-        const chunkSize = 3145728 // 3 MB
+        const chunkSize = 65536 // 64 KB (Límite seguro en todos los navegadores)
         const totalSize = buffer.byteLength
         let offset = 0
         let bytesSent = 0
         
-        // Increase the buffer threshold to allow faster burst sending
-        // especially important in background tabs to minimize context switching
-        const MAX_BUFFER = chunkSize * 16 
+        // Aumentar el colchón (buffer) a 2 MB para que fluya más rápido, pero sin colapsar SCTP
+        const MAX_BUFFER = 2097152 // 2 MB
+        // Fundamental: decirle a WebRTC que avise cuando el buffer baje de 1 MB para rellenarlo sin parar
+        channel.bufferedAmountLowThreshold = 1048576 
 
         function pumpData() {
           if (channel.readyState !== 'open') return

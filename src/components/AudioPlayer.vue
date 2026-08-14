@@ -290,7 +290,7 @@ const handleNextClick = () => {
             aria-label="Añadir a favoritos"
             title="Añadir a Favoritos"
           >
-            <component :is="Heart" :size="20" :fill="playerStore.currentSong.favorite ? 'currentColor' : 'none'" stroke-width="2.5" />
+            <MorphIcon :icon="Heart" size="20" :fill="playerStore.currentSong.favorite ? 'currentColor' : 'none'" stroke-width="2.5" />
           </button>
 
           <!-- Playlist button -->
@@ -300,7 +300,7 @@ const handleNextClick = () => {
             aria-label="Ver playlist"
             title="Lista de Reproducción"
           >
-            <component :is="Plus" :size="22" stroke-width="2.5" />
+            <MorphIcon :icon="Plus" size="22" stroke-width="2.5" />
           </button>
         </div>
         

@@ -30,6 +30,14 @@ export const usePlayerStore = defineStore('player', () => {
     nextTrack()
   })
 
+  audio.addEventListener('play', () => {
+    isPlaying.value = true
+  })
+
+  audio.addEventListener('pause', () => {
+    isPlaying.value = false
+  })
+
   // Sync volume state to localStorage
   watch(volume, (newVol) => {
     audio.volume = newVol
@@ -57,7 +65,7 @@ export const usePlayerStore = defineStore('player', () => {
 
   function loadSong(song: Song, customPlaylist?: Song[]) {
     if (customPlaylist) {
-      playlist.value = customPlaylist
+      playlist.value = customPlaylist.sort(() => Math.random() - 0.5) //orden aleatorioz
     }
 
     currentSong.value = song
@@ -86,6 +94,13 @@ export const usePlayerStore = defineStore('player', () => {
       return
     }
     if (!currentSong.value) return
+
+    if (!currentSong.value.audioUrl) {
+      // Si aún no hay URL de audio (descargando), marcamos como "reproduciendo" 
+      // para que updateAudioSrc lo inicie automáticamente cuando termine.
+      isPlaying.value = true
+      return
+    }
 
     audio.play().then(() => {
       isPlaying.value = true
