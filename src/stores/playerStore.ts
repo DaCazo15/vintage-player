@@ -12,7 +12,47 @@ export const usePlayerStore = defineStore('player', () => {
   const currentTime = ref(0)
   const duration = ref(0)
   const volume = ref(Number(localStorage.getItem('vintage-volume') ?? '1.0'))
+  
+  const originalPlaylist = ref<Song[]>([])
   const playlist = ref<Song[]>([])
+  const isShuffleEnabled = ref(false)
+  const repeatMode = ref<'off' | 'all' | 'one'>('off')
+
+  // Web Audio API State
+  let audioContext: AudioContext | null = null
+  let analyser: AnalyserNode | null = null
+  let source: MediaElementAudioSourceNode | null = null
+  const frequencyData = new Uint8Array(32) // fftSize 64 means 32 bins
+
+  function initAudioContext() {
+    if (audioContext) return
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextClass) return
+    audioContext = new AudioContextClass()
+    analyser = audioContext.createAnalyser()
+    analyser.fftSize = 64
+    source = audioContext.createMediaElementSource(audio)
+    source.connect(analyser)
+    analyser.connect(audioContext.destination)
+  }
+
+  function getFrequencyData() {
+    if (analyser) {
+      analyser.getByteFrequencyData(frequencyData)
+    } else {
+      frequencyData.fill(0)
+    }
+    return frequencyData
+  }
+
+  function shuffleArray(array: any[]) {
+    const arr = [...array]
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]]
+    }
+    return arr
+  }
 
   // Initialize audio volume
   audio.volume = volume.value
@@ -65,7 +105,12 @@ export const usePlayerStore = defineStore('player', () => {
 
   function loadSong(song: Song, customPlaylist?: Song[]) {
     if (customPlaylist) {
-      playlist.value = customPlaylist.sort(() => Math.random() - 0.5) //orden aleatorioz
+      originalPlaylist.value = [...customPlaylist]
+      if (isShuffleEnabled.value) {
+        playlist.value = shuffleArray(customPlaylist)
+      } else {
+        playlist.value = [...customPlaylist]
+      }
     }
 
     currentSong.value = song
@@ -89,6 +134,11 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   function play() {
+    initAudioContext()
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume()
+    }
+
     if (!currentSong.value && playlist.value.length > 0) {
       loadSong(playlist.value[0])
       return
@@ -133,6 +183,30 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
+  function toggleShuffle() {
+    isShuffleEnabled.value = !isShuffleEnabled.value
+    if (isShuffleEnabled.value) {
+      let shuffled = shuffleArray(originalPlaylist.value)
+      if (currentSong.value) {
+        shuffled = shuffled.filter(s => s.id !== currentSong.value?.id)
+        shuffled.unshift(currentSong.value)
+      }
+      playlist.value = shuffled
+    } else {
+      playlist.value = [...originalPlaylist.value]
+    }
+  }
+
+  function toggleRepeat() {
+    if (repeatMode.value === 'off') {
+      repeatMode.value = 'all'
+    } else if (repeatMode.value === 'all') {
+      repeatMode.value = 'one'
+    } else {
+      repeatMode.value = 'off'
+    }
+  }
+
   function seek(time: number) {
     if (!currentSong.value) return
     audio.currentTime = time
@@ -152,12 +226,23 @@ export const usePlayerStore = defineStore('player', () => {
       return
     }
 
+    if (repeatMode.value === 'one') {
+      seek(0)
+      play()
+      return
+    }
+
     const currentIndex = playlist.value.findIndex((s) => s.id === currentSong.value?.id)
     if (currentIndex !== -1 && currentIndex < playlist.value.length - 1) {
-      loadSong(playlist.value[currentIndex + 1])
+      loadSong(playlist.value[currentIndex + 1], playlist.value)
     } else {
-      // Loop back to the first song
-      loadSong(playlist.value[0])
+      // At the end of the playlist
+      if (repeatMode.value === 'all') {
+        loadSong(playlist.value[0], playlist.value)
+      } else {
+        // repeatMode === 'off'
+        stop()
+      }
     }
   }
 
@@ -176,10 +261,38 @@ export const usePlayerStore = defineStore('player', () => {
 
     const currentIndex = playlist.value.findIndex((s) => s.id === currentSong.value?.id)
     if (currentIndex > 0) {
-      loadSong(playlist.value[currentIndex - 1])
+      loadSong(playlist.value[currentIndex - 1], playlist.value) // pass current playlist to prevent reset
     } else {
-      // Loop back to the last song
-      loadSong(playlist.value[playlist.value.length - 1])
+      if (repeatMode.value === 'all') {
+        loadSong(playlist.value[playlist.value.length - 1], playlist.value)
+      } else {
+        seek(0)
+      }
+    }
+  }
+
+  function playFromQueue(index: number) {
+    if (index >= 0 && index < playlist.value.length) {
+      const song = playlist.value[index]
+      currentSong.value = song
+      audio.src = song.audioUrl
+      currentTime.value = 0
+      duration.value = song.duration
+      updateMediaSession()
+      play()
+    }
+  }
+
+  function removeFromQueue(index: number) {
+    if (index >= 0 && index < playlist.value.length) {
+      playlist.value.splice(index, 1)
+    }
+  }
+
+  function reorderQueue(fromIndex: number, toIndex: number) {
+    if (fromIndex >= 0 && fromIndex < playlist.value.length && toIndex >= 0 && toIndex < playlist.value.length) {
+      const item = playlist.value.splice(fromIndex, 1)[0]
+      playlist.value.splice(toIndex, 0, item)
     }
   }
 
@@ -190,15 +303,23 @@ export const usePlayerStore = defineStore('player', () => {
     duration,
     volume,
     playlist,
+    isShuffleEnabled,
+    repeatMode,
     loadSong,
     updateAudioSrc,
     play,
     pause,
     stop,
     togglePlay,
+    toggleShuffle,
+    toggleRepeat,
     seek,
     setVolume,
     nextTrack,
-    prevTrack
+    prevTrack,
+    playFromQueue,
+    removeFromQueue,
+    reorderQueue,
+    getFrequencyData
   }
 })

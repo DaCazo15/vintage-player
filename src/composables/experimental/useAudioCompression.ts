@@ -1,3 +1,8 @@
+/**
+ * EXPERIMENTAL: Este composable depende de un backend FastAPI externo 
+ * que no está incluido en este repositorio. Actualmente no está conectado 
+ * a ningún flujo de la UI principal.
+ */
 import { ref, computed } from 'vue'
 
 export interface SongToCompress {

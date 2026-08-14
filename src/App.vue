@@ -2,8 +2,12 @@
 import { RouterView } from 'vue-router'
 import { usePlayerStore } from '@/stores/playerStore'
 import AudioPlayer from '@/components/AudioPlayer.vue'
+import ErrorViewer from '@/components/ErrorViewer.vue'
+import PWABadge from '@/components/PWABadge.vue'
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 
 const playerStore = usePlayerStore()
+useKeyboardShortcuts()
 </script>
 
 <template>
@@ -14,4 +18,7 @@ const playerStore = usePlayerStore()
     <RouterView />
     <AudioPlayer />
   </div>
+
+  <PWABadge />
+  <ErrorViewer />
 </template>

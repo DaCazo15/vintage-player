@@ -7,6 +7,8 @@ import { MorphIcon } from 'morphicons/vue'
 import { HeartEmpty, HeartFilled } from '@/assets/brandIcons'
 import { usePlatform } from '@/composables/usePlatform'
 import { useDpadNavigation } from '@/composables/useDpadNavigation'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import AudioVisualizer from '@/components/AudioVisualizer.vue'
 
 const props = defineProps<{
   song: Song
@@ -85,7 +87,9 @@ const triggerFavoritePulse = async () => {
   }
 }
 
-const handleDeleteClick = async () => {
+const showConfirmDialog = ref(false)
+
+const handleDeleteClick = () => {
   if (deleteBtn.value) {
     animate(deleteBtn.value, {
       scale: 0.9,
@@ -94,7 +98,12 @@ const handleDeleteClick = async () => {
     })
   }
 
-  if (props.song.id && confirm('¿Estás seguro de que deseas eliminar esta canción de tu biblioteca?')) {
+  showConfirmDialog.value = true
+}
+
+const onConfirmDelete = async () => {
+  showConfirmDialog.value = false
+  if (props.song.id) {
     try {
       await libraryStore.deleteSong(props.song.id)
     } catch (err) {
@@ -136,12 +145,8 @@ const handleDeleteClick = async () => {
       
       <!-- Playing overlay -->
       <div v-if="isActive" class="absolute inset-0 bg-petrol/20 flex items-center justify-center">
-        <!-- Minimal vintage equalizer lines animation -->
-        <div class="flex gap-0.5 items-end h-5">
-          <span class="w-0.5 bg-mustard rounded animate-[bounce_0.8s_infinite_100ms]"></span>
-          <span class="w-0.5 h-4 bg-mustard rounded animate-[bounce_0.8s_infinite_300ms]"></span>
-          <span class="w-0.5 h-3 bg-mustard rounded animate-[bounce_0.8s_infinite_50ms]"></span>
-        </div>
+        <!-- Real animated equalizer -->
+        <AudioVisualizer :width="20" :height="14" :bar-count="4" :gap="2" bar-color="var(--color-mustard)" />
       </div>
     </div>
 
@@ -196,6 +201,14 @@ const handleDeleteClick = async () => {
         </svg>
       </button>
     </div>
+
+    <ConfirmDialog
+      :is-open="showConfirmDialog"
+      title="Eliminar canción"
+      message="¿Estás seguro de que deseas eliminar esta canción de tu biblioteca?"
+      @confirm="onConfirmDelete"
+      @cancel="showConfirmDialog = false"
+    />
   </div>
 </template>
 

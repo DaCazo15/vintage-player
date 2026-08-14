@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { db, storage } from '@/firebase/config'
-import type { Song } from '@/firebase/config'
+import type { Song, Playlist } from '@/firebase/config'
 import { useAuthStore } from '@/stores/authStore'
 import {
   collection,
@@ -23,12 +23,6 @@ import {
   getDownloadURL,
   deleteObject
 } from 'firebase/storage'
-
-export interface Playlist {
-  id: string
-  songs: any[]
-  createdAt: any
-}
 
 export const useLibraryStore = defineStore('library', () => {
   const authStore = useAuthStore()
@@ -75,7 +69,9 @@ export const useLibraryStore = defineStore('library', () => {
                 title: data.title,
                 artist: data.artist,
                 audioUrl: data.audioUrl,
+                audioPath: data.audioPath,
                 coverUrl: data.coverUrl,
+                coverPath: data.coverPath,
                 duration: data.duration,
                 favorite: data.favorite,
                 createdAt: data.createdAt
@@ -102,6 +98,7 @@ export const useLibraryStore = defineStore('library', () => {
             playlists.value = snapshot.docs.map((docEl) => {
               return {
                 id: docEl.id,
+                name: docEl.data().name || 'Lista sin nombre',
                 songs: docEl.data().songs || [],
                 createdAt: docEl.data().createdAt
               } as Playlist
@@ -141,7 +138,7 @@ export const useLibraryStore = defineStore('library', () => {
       const audioFileRef = storageRef(storage, audioPath)
       const uploadTask = uploadBytesResumable(audioFileRef, audioFile)
 
-      const audioSnapshot = await new Promise<any>((resolve, reject) => {
+      const audioSnapshot = await new Promise<import('firebase/storage').UploadTaskSnapshot>((resolve, reject) => {
         uploadTask.on(
           'state_changed',
           (snapshot) => {
@@ -156,8 +153,9 @@ export const useLibraryStore = defineStore('library', () => {
       const audioUrl = await getDownloadURL(audioSnapshot.ref)
 
       let coverUrl: string | null = null
+      let coverPath: string | null = null
       if (coverFile) {
-        const coverPath = `users/${uid}/covers/${Date.now()}_${coverFile.name}`
+        coverPath = `users/${uid}/covers/${Date.now()}_${coverFile.name}`
         const coverFileRef = storageRef(storage, coverPath)
         const coverSnapshot = await uploadBytes(coverFileRef, coverFile)
         coverUrl = await getDownloadURL(coverSnapshot.ref)
@@ -167,7 +165,9 @@ export const useLibraryStore = defineStore('library', () => {
         title,
         artist,
         audioUrl,
+        audioPath,
         coverUrl,
+        coverPath,
         duration,
         favorite: false,
         createdAt: serverTimestamp()
@@ -193,13 +193,25 @@ export const useLibraryStore = defineStore('library', () => {
       if (song) {
         if (song.audioUrl) {
           try {
-            await deleteObject(storageRef(storage, song.audioUrl))
-          } catch (e) { }
+            const refToDelete = song.audioPath 
+              ? storageRef(storage, song.audioPath)
+              : storageRef(storage, song.audioUrl)
+            await deleteObject(refToDelete)
+          } catch (e: any) { 
+            console.error('Error deleting audio from storage:', e)
+            error.value = 'Aviso: No se pudo eliminar el archivo de audio del servidor.'
+          }
         }
         if (song.coverUrl) {
           try {
-            await deleteObject(storageRef(storage, song.coverUrl))
-          } catch (e) { }
+            const refToDelete = song.coverPath 
+              ? storageRef(storage, song.coverPath)
+              : storageRef(storage, song.coverUrl)
+            await deleteObject(refToDelete)
+          } catch (e: any) { 
+            console.error('Error deleting cover from storage:', e)
+            error.value = 'Aviso: No se pudo eliminar la portada del servidor.'
+          }
         }
       }
       await deleteDoc(doc(db, 'users', uid, 'songs', songId))
@@ -228,20 +240,30 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
-  // Add a song metadata to favorites collection (works for WebRTC temporary songs too)
-  async function addToFavorites(songData: any) {
+  // Guarda una canción recibida por WebRTC en la biblioteca normal para persistirla.
+  // NOTA: Como WebRTC no persiste el blob de audio en Storage automáticamente, 
+  // establecemos audioUrl a '' y isPendingSync a true. Esto requiere que el usuario 
+  // vuelva a subir el archivo de audio manualmente (o mediante un flujo de sincronización) 
+  // si quiere reproducirlo en el futuro offline o en otros dispositivos.
+  async function saveWebRTCSongToLibrary(songData: Partial<Song> & { title: string; artist: string }) {
     const uid = authStore.user?.uid
-    if (!uid) throw new Error('Debe iniciar sesión para marcar favoritos.')
+    if (!uid) throw new Error('Debe iniciar sesión para guardar canciones temporales.')
 
     try {
-      await addDoc(collection(db, 'users', uid, 'favoritos'), {
-        title: songData.title,
-        artist: songData.artist,
-        originalId: songData.id || null,
+      await addDoc(collection(db, 'users', uid, 'songs'), {
+        title: songData.title || 'Desconocido',
+        artist: songData.artist || 'Desconocido',
+        audioUrl: '',
+        audioPath: '',
+        coverUrl: songData.coverUrl || null,
+        coverPath: '',
+        duration: songData.duration || 0,
+        favorite: true,
+        isPendingSync: true,
         createdAt: serverTimestamp()
       })
     } catch (err) {
-      console.error('Error toggling favorite:', err)
+      console.error('Error saving WebRTC song to library:', err)
       throw err
     }
   }
@@ -252,8 +274,9 @@ export const useLibraryStore = defineStore('library', () => {
     if (!uid) throw new Error('Debe iniciar sesión para crear listas.')
 
     try {
-      const playlistRef = doc(db, 'users', uid, 'playlists', name)
-      await setDoc(playlistRef, {
+      const playlistsRef = collection(db, 'users', uid, 'playlists')
+      await addDoc(playlistsRef, {
+        name,
         songs: [],
         createdAt: serverTimestamp()
       })
@@ -263,13 +286,37 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
+  async function renamePlaylist(playlistId: string, newName: string) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión.')
+    try {
+      const playlistRef = doc(db, 'users', uid, 'playlists', playlistId)
+      await updateDoc(playlistRef, { name: newName })
+    } catch (err) {
+      console.error('Error renaming playlist:', err)
+      throw err
+    }
+  }
+
+  async function deletePlaylist(playlistId: string) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión.')
+    try {
+      const playlistRef = doc(db, 'users', uid, 'playlists', playlistId)
+      await deleteDoc(playlistRef)
+    } catch (err) {
+      console.error('Error deleting playlist:', err)
+      throw err
+    }
+  }
+
   // Add song to playlist
-  async function addSongToPlaylist(playlistName: string, songData: any) {
+  async function addSongToPlaylist(playlistId: string, songData: Partial<Song> & { title: string; artist: string }) {
     const uid = authStore.user?.uid
     if (!uid) throw new Error('Debe iniciar sesión.')
 
     try {
-      const playlistRef = doc(db, 'users', uid, 'playlists', playlistName)
+      const playlistRef = doc(db, 'users', uid, 'playlists', playlistId)
       await updateDoc(playlistRef, {
         songs: arrayUnion({
           title: songData.title,
@@ -284,6 +331,23 @@ export const useLibraryStore = defineStore('library', () => {
     }
   }
 
+  async function removeSongFromPlaylist(playlistId: string, songOriginalId: string) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión.')
+    try {
+      const playlist = playlists.value.find(p => p.id === playlistId)
+      if (!playlist) return
+      
+      const updatedSongs = playlist.songs.filter(s => s.originalId !== songOriginalId)
+      
+      const playlistRef = doc(db, 'users', uid, 'playlists', playlistId)
+      await updateDoc(playlistRef, { songs: updatedSongs })
+    } catch (err) {
+      console.error('Error removing song from playlist:', err)
+      throw err
+    }
+  }
+
   return {
     songs,
     playlists,
@@ -292,8 +356,11 @@ export const useLibraryStore = defineStore('library', () => {
     addSong,
     deleteSong,
     toggleFavorite,
-    addToFavorites,
+    saveWebRTCSongToLibrary,
     createPlaylist,
-    addSongToPlaylist
+    renamePlaylist,
+    deletePlaylist,
+    addSongToPlaylist,
+    removeSongFromPlaylist
   }
 })

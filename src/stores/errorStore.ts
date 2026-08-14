@@ -19,6 +19,9 @@ export const useErrorStore = defineStore('error', () => {
       id: Math.random().toString(36).substring(2, 9),
       timestamp: new Date()
     })
+    if (errors.value.length > 50) {
+      errors.value.shift()
+    }
   }
 
   function clearErrors() {

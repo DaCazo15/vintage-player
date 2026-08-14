@@ -60,19 +60,29 @@ export interface Song {
   title: string;              // Title of the song
   artist: string;             // Name of the artist
   audioUrl: string;           // URL of the audio file in Firebase Storage
+  audioPath?: string;         // Relative path in Firebase Storage (for reliable deletion)
   coverUrl: string | null;    // URL of the cover art file in Firebase Storage (or null)
+  coverPath?: string | null;  // Relative path in Firebase Storage for the cover
   duration: number;           // Duration of the audio file in seconds
   createdAt: Timestamp;       // Date and time when the song was uploaded/saved
   favorite: boolean;          // Flag indicating if the song is favorited
+  isPendingSync?: boolean;    // Flag indicating if the song is missing its audio blob (e.g. from WebRTC)
 }
 
 /**
  * Playlist Model
  * Path: users/{uid}/playlists/{playlistId}
  */
+export interface PlaylistSongRef {
+  title: string;
+  artist: string;
+  originalId: string | null;
+  addedAt: number;
+}
+
 export interface Playlist {
-  id?: string;                // Document ID (generated automatically by Firestore)
+  id: string;                 // Document ID (generated automatically by Firestore)
   name: string;               // Name of the playlist
-  songIds: string[];          // List of songIds referencing the songs inside the playlist
+  songs: PlaylistSongRef[];   // List of songs inside the playlist
   createdAt: Timestamp;       // Date and time when the playlist was created
 }

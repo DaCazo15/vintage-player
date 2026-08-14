@@ -4,11 +4,13 @@ import { usePlayerStore } from '@/stores/playerStore'
 import { gsap } from 'gsap'
 import { animate } from 'animejs'
 import { MorphIcon } from 'morphicons/vue'
-import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Heart, Plus } from 'lucide'
+import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Heart, Plus, Shuffle, Repeat, Repeat1, ListMusic } from 'lucide'
 import { usePlatform } from '@/composables/usePlatform'
 import { useDpadNavigation } from '@/composables/useDpadNavigation'
 import { useLibraryStore } from '@/stores/libraryStore'
 import PlaylistModal from './PlaylistModal.vue'
+import QueuePanel from './QueuePanel.vue'
+import AudioVisualizer from '@/components/AudioVisualizer.vue'
 
 const { isTV } = usePlatform()
 const { handleDpadKeyDown } = useDpadNavigation()
@@ -25,6 +27,7 @@ const playerStore = usePlayerStore()
 const libraryStore = useLibraryStore()
 
 const isPlaylistModalOpen = ref(false)
+const isQueuePanelOpen = ref(false)
 const isLiking = ref(false)
 
 const handleLike = async () => {
@@ -33,7 +36,7 @@ const handleLike = async () => {
   try {
     const songId = playerStore.currentSong.id;
     if (songId && songId.startsWith('webrtc-')) {
-       await libraryStore.addToFavorites(playerStore.currentSong)
+       await libraryStore.saveWebRTCSongToLibrary(playerStore.currentSong)
        playerStore.currentSong.favorite = true
     } else if (songId) {
        await libraryStore.toggleFavorite(songId)
@@ -192,10 +195,13 @@ const handleNextClick = () => {
           </div>
         </div>
 
-        <div class="min-w-0">
-          <h4 class="font-pixelify text-sm font-bold text-petrol truncate uppercase leading-tight">
-            {{ playerStore.currentSong.title }}
-          </h4>
+        <div class="min-w-0 flex flex-col justify-center">
+          <div class="flex items-center gap-2">
+            <h4 class="font-pixelify text-sm font-bold text-petrol truncate uppercase leading-tight">
+              {{ playerStore.currentSong.title }}
+            </h4>
+            <AudioVisualizer class="hidden sm:block" :width="20" :height="14" :bar-count="5" :gap="2" bar-color="var(--color-petrol)" />
+          </div>
           <p class="font-roboto text-xs text-coffee truncate mt-0.5 mb-1">
             {{ playerStore.currentSong.artist }}
           </p>
@@ -206,6 +212,18 @@ const handleNextClick = () => {
       <div class="flex flex-col items-center gap-1.5 flex-1 max-w-xl px-4">
         <!-- Control buttons -->
         <div class="flex items-center gap-4">
+          <!-- Shuffle button -->
+          <button
+            type="button"
+            @click="playerStore.toggleShuffle"
+            class="w-8 h-8 rounded-full border border-coffee flex items-center justify-center cursor-pointer transition-colors focus:outline-none"
+            :class="playerStore.isShuffleEnabled ? 'bg-mustard hover:bg-terracotta text-cream' : 'bg-cream hover:bg-paper text-petrol'"
+            aria-label="Modo aleatorio"
+            title="Aleatorio"
+          >
+            <MorphIcon :icon="Shuffle" size="14" color="currentColor" stroke-width="2.5" />
+          </button>
+
           <!-- Prev button -->
           <button
             ref="prevBtn"
@@ -248,6 +266,18 @@ const handleNextClick = () => {
             title="Siguiente"
           >
             <MorphIcon :icon="SkipForward" size="14" color="currentColor" stroke-width="2.5" />
+          </button>
+
+          <!-- Repeat button -->
+          <button
+            type="button"
+            @click="playerStore.toggleRepeat"
+            class="w-8 h-8 rounded-full border border-coffee flex items-center justify-center cursor-pointer transition-colors focus:outline-none"
+            :class="playerStore.repeatMode !== 'off' ? 'bg-mustard hover:bg-terracotta text-cream' : 'bg-cream hover:bg-paper text-petrol'"
+            aria-label="Modo repetición"
+            title="Repetir"
+          >
+            <MorphIcon :icon="playerStore.repeatMode === 'one' ? Repeat1 : Repeat" size="14" color="currentColor" stroke-width="2.5" />
           </button>
 
 
@@ -298,9 +328,19 @@ const handleNextClick = () => {
             @click="isPlaylistModalOpen = true" 
             class="flex text-coffee hover:text-mustard hover:scale-110 transition-transform"
             aria-label="Ver playlist"
-            title="Lista de Reproducción"
+            title="Añadir a Lista de Reproducción"
           >
             <MorphIcon :icon="Plus" size="22" stroke-width="2.5" />
+          </button>
+
+          <!-- Queue button -->
+          <button 
+            @click="isQueuePanelOpen = true" 
+            class="flex text-coffee hover:text-petrol hover:scale-110 transition-transform"
+            aria-label="Ver cola de reproducción"
+            title="Cola de Reproducción"
+          >
+            <MorphIcon :icon="ListMusic" size="20" stroke-width="2.5" />
           </button>
         </div>
         
@@ -341,6 +381,11 @@ const handleNextClick = () => {
     :is-open="isPlaylistModalOpen" 
     :song-data="playerStore.currentSong"
     @close="isPlaylistModalOpen = false"
+  />
+
+  <QueuePanel
+    :is-open="isQueuePanelOpen"
+    @close="isQueuePanelOpen = false"
   />
 </template>
 

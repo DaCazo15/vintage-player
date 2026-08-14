@@ -94,6 +94,7 @@ Para probar la aplicación directamente desde tu celular en la misma red local W
 *   `npm run dev`: Levanta el servidor de desarrollo local con soporte host.
 *   `npm run build`: Compila y optimiza la aplicación para producción en la carpeta `/dist` utilizando `vue-tsc` para chequeo de tipos.
 *   `npm run preview`: Sirve localmente el bundle compilado en producción para validaciones rápidas.
+*   `npm run cleanup:storage`: Ejecuta una herramienta de mantenimiento manual para el dueño del proyecto que revisa en Firebase Storage si existen archivos huérfanos (audios/portadas que no tengan ningún documento de Firestore asociado) y los elimina. Requiere `service-account-key.json` en la raíz.
 
 ---
 

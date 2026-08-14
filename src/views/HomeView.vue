@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/authStore'
 import { useLibraryStore } from '@/stores/libraryStore'
 import { animate } from 'animejs'
 import { driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
+import { MorphIcon } from 'morphicons/vue'
+import { Keyboard } from 'lucide'
 import SongList from '@/components/SongList.vue'
 import RetroCast from '@/components/RetroCast.vue'
 import { usePlatform } from '@/composables/usePlatform'
@@ -16,12 +18,12 @@ const { isTV, isMobile } = usePlatform()
 const authStore = useAuthStore()
 const libraryStore = useLibraryStore()
 const router = useRouter()
-console.log('UID celular:', authStore.user?.uid, 'email:', authStore.user?.email)
 
 const showTransmitter = ref(false)
 const searchQuery = ref('')
 const activeFilter = ref<'all' | 'favorites' | 'playlists'>('all')
 const activePlaylistId = ref<string>('')
+const showShortcutsModal = ref(false)
 
 const retroConnectionStatus = ref('disconnected')
 const retroRole = ref('receiver')
@@ -94,6 +96,12 @@ const startConnectionGuide = () => {
   
   driverObj.drive()
 }
+
+watch(() => libraryStore.playlists, (playlists: any[]) => {
+  if (activePlaylistId.value && !playlists.find(p => p.id === activePlaylistId.value)) {
+    activePlaylistId.value = ''
+  }
+}, { deep: true })
 
 // Client-side search filtering
 const filteredSongs = computed(() => {
@@ -174,6 +182,15 @@ const handleLogout = async () => {
           aria-label="Iniciar guía de conexión con el teléfono celular"
         >
           Conectar Celular
+        </button>
+        <button
+          v-if="!isTV && !isMobile"
+          @click="showShortcutsModal = true"
+          class="w-9 h-9 bg-cream hover:bg-paper text-petrol font-roboto font-bold border-2 border-coffee rounded-xl shadow-[3px_3px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer flex items-center justify-center"
+          aria-label="Atajos de teclado"
+          title="Atajos de teclado"
+        >
+          <MorphIcon :icon="Keyboard" size="18" stroke-width="2.5" />
         </button>
         <a
           href="/vintage-player.apk"
@@ -271,7 +288,7 @@ const handleLogout = async () => {
           >
             <option disabled value="">Selecciona una lista...</option>
             <option v-for="pl in libraryStore.playlists" :key="pl.id" :value="pl.id">
-              {{ pl.id }}
+              {{ pl.name }}
             </option>
           </select>
         </div>
@@ -296,6 +313,25 @@ const handleLogout = async () => {
         <SongList :songs="filteredSongs" />
       </div>
     </section>
+
+    <!-- Shortcuts Modal -->
+    <div v-if="showShortcutsModal" class="fixed inset-0 bg-black/80 z-200 flex items-center justify-center p-4 transition-opacity" @click.self="showShortcutsModal = false">
+      <div class="bg-paper border-4 border-coffee rounded-3xl p-6 shadow-[6px_6px_0px_0px_rgba(92,61,46,1)] max-w-sm w-full relative">
+        <h3 class="font-pixelify text-xl font-bold text-petrol mb-4">Atajos de Teclado</h3>
+        <ul class="space-y-3 font-roboto text-sm text-coffee">
+          <li class="flex justify-between border-b border-coffee/20 pb-2"><span>Espacio</span><span class="font-bold text-petrol">Play / Pause</span></li>
+          <li class="flex justify-between border-b border-coffee/20 pb-2"><span>Flecha ➡️</span><span class="font-bold text-petrol">Siguiente</span></li>
+          <li class="flex justify-between border-b border-coffee/20 pb-2"><span>Flecha ⬅️</span><span class="font-bold text-petrol">Anterior</span></li>
+          <li class="flex justify-between border-b border-coffee/20 pb-2"><span>Flecha ⬆️ / ⬇️</span><span class="font-bold text-petrol">Volumen +/-</span></li>
+          <li class="flex justify-between border-b border-coffee/20 pb-2"><span>M</span><span class="font-bold text-petrol">Silenciar</span></li>
+          <li class="flex justify-between border-b border-coffee/20 pb-2"><span>S</span><span class="font-bold text-petrol">Aleatorio</span></li>
+          <li class="flex justify-between pb-1"><span>R</span><span class="font-bold text-petrol">Repetir</span></li>
+        </ul>
+        <button @click="showShortcutsModal = false" class="mt-6 w-full px-4 py-2 bg-mustard hover:bg-terracotta text-cream font-roboto font-bold rounded-xl border-2 border-coffee shadow-[2px_2px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all">
+          Entendido
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
