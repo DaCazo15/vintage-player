@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { db, storage } from '@/firebase/config'
-import type { Song, Playlist } from '@/firebase/config'
+import type { Song, Playlist, Artist } from '@/firebase/config'
 import { useAuthStore } from '@/stores/authStore'
 import {
   collection,
@@ -10,7 +10,6 @@ import {
   onSnapshot,
   doc,
   addDoc,
-  setDoc,
   deleteDoc,
   updateDoc,
   serverTimestamp,
@@ -30,12 +29,14 @@ export const useLibraryStore = defineStore('library', () => {
   // Reactive State
   const songs = ref<Song[]>([])
   const playlists = ref<Playlist[]>([])
+  const artists = ref<Artist[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
   // Real-time listener unsubscribe function holders
   let unsubscribeSongs: (() => void) | null = null
   let unsubscribePlaylists: (() => void) | null = null
+  let unsubscribeArtists: (() => void) | null = null
 
   // Watch for auth changes to bind/unbind Firestore collection listener
   watch(
@@ -48,6 +49,10 @@ export const useLibraryStore = defineStore('library', () => {
       if (unsubscribePlaylists) {
         unsubscribePlaylists()
         unsubscribePlaylists = null
+      }
+      if (unsubscribeArtists) {
+        unsubscribeArtists()
+        unsubscribeArtists = null
       }
 
       if (newUser) {
@@ -108,9 +113,32 @@ export const useLibraryStore = defineStore('library', () => {
             console.error('Firestore playlists listener error:', err)
           }
         )
+
+        // Listen to artists
+        const qArtists = query(
+          collection(db, 'users', newUser.uid, 'artists'),
+          orderBy('createdAt', 'desc')
+        )
+
+        unsubscribeArtists = onSnapshot(
+          qArtists,
+          (snapshot) => {
+            artists.value = snapshot.docs.map((docEl) => {
+              return {
+                id: docEl.id,
+                name: docEl.data().name || 'Artista sin nombre',
+                createdAt: docEl.data().createdAt
+              } as Artist
+            })
+          },
+          (err) => {
+            console.error('Firestore artists listener error:', err)
+          }
+        )
       } else {
         songs.value = []
         playlists.value = []
+        artists.value = []
         loading.value = false
         error.value = null
       }
@@ -134,9 +162,28 @@ export const useLibraryStore = defineStore('library', () => {
     error.value = null
 
     try {
+      // 1. Compresión de audio
+      const { useAudioCompression } = await import('@/composables/useAudioCompression')
+      const { compressSingleSong: doCompress } = useAudioCompression()
+      
+      let finalAudioFile: File | Blob = audioFile
+      try {
+        const compressed = await doCompress({
+          id: Date.now().toString(),
+          title,
+          artist,
+          file: audioFile
+        })
+        if (compressed.status === 'success') {
+          finalAudioFile = compressed.compressedFile
+        }
+      } catch (err) {
+        console.warn('Compression failed, using original file', err)
+      }
+
       const audioPath = `users/${uid}/audio/${Date.now()}_${audioFile.name}`
       const audioFileRef = storageRef(storage, audioPath)
-      const uploadTask = uploadBytesResumable(audioFileRef, audioFile)
+      const uploadTask = uploadBytesResumable(audioFileRef, finalAudioFile as File)
 
       const audioSnapshot = await new Promise<import('firebase/storage').UploadTaskSnapshot>((resolve, reject) => {
         uploadTask.on(
@@ -271,17 +318,35 @@ export const useLibraryStore = defineStore('library', () => {
   // Create a new playlist
   async function createPlaylist(name: string) {
     const uid = authStore.user?.uid
-    if (!uid) throw new Error('Debe iniciar sesión para crear listas.')
+    if (!uid) throw new Error('Debe iniciar sesión para crear una lista.')
 
+    const newPlaylist = {
+      name,
+      songs: [],
+      createdAt: serverTimestamp()
+    }
+    await addDoc(collection(db, 'users', uid, 'playlists'), newPlaylist)
+  }
+
+  async function createArtist(name: string) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión para crear un artista.')
+
+    const newArtist = {
+      name,
+      createdAt: serverTimestamp()
+    }
+    await addDoc(collection(db, 'users', uid, 'artists'), newArtist)
+  }
+
+  async function deletePlaylist(playlistId: string) {
+    const uid = authStore.user?.uid
+    if (!uid) throw new Error('Debe iniciar sesión.')
     try {
-      const playlistsRef = collection(db, 'users', uid, 'playlists')
-      await addDoc(playlistsRef, {
-        name,
-        songs: [],
-        createdAt: serverTimestamp()
-      })
+      const playlistRef = doc(db, 'users', uid, 'playlists', playlistId)
+      await deleteDoc(playlistRef)
     } catch (err) {
-      console.error('Error creating playlist:', err)
+      console.error('Error deleting playlist:', err)
       throw err
     }
   }
@@ -294,18 +359,6 @@ export const useLibraryStore = defineStore('library', () => {
       await updateDoc(playlistRef, { name: newName })
     } catch (err) {
       console.error('Error renaming playlist:', err)
-      throw err
-    }
-  }
-
-  async function deletePlaylist(playlistId: string) {
-    const uid = authStore.user?.uid
-    if (!uid) throw new Error('Debe iniciar sesión.')
-    try {
-      const playlistRef = doc(db, 'users', uid, 'playlists', playlistId)
-      await deleteDoc(playlistRef)
-    } catch (err) {
-      console.error('Error deleting playlist:', err)
       throw err
     }
   }
@@ -351,6 +404,7 @@ export const useLibraryStore = defineStore('library', () => {
   return {
     songs,
     playlists,
+    artists,
     loading,
     error,
     addSong,
@@ -358,8 +412,9 @@ export const useLibraryStore = defineStore('library', () => {
     toggleFavorite,
     saveWebRTCSongToLibrary,
     createPlaylist,
-    renamePlaylist,
+    createArtist,
     deletePlaylist,
+    renamePlaylist,
     addSongToPlaylist,
     removeSongFromPlaylist
   }

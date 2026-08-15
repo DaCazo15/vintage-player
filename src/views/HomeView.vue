@@ -21,8 +21,10 @@ const router = useRouter()
 
 const showTransmitter = ref(false)
 const searchQuery = ref('')
-const activeFilter = ref<'all' | 'favorites' | 'playlists'>('all')
+const activeFilter = ref<'artists' | 'favorites' | 'playlists'>('artists')
 const activePlaylistId = ref<string>('')
+const activeArtistId = ref<string>('')
+const showArtistModal = ref(false)
 const showShortcutsModal = ref(false)
 
 const retroConnectionStatus = ref('disconnected')
@@ -103,18 +105,41 @@ watch(() => libraryStore.playlists, (playlists: any[]) => {
   }
 }, { deep: true })
 
+watch(() => libraryStore.artists, (artists: any[]) => {
+  if (activeArtistId.value && !artists.find(a => a.id === activeArtistId.value)) {
+    activeArtistId.value = ''
+  }
+}, { deep: true })
+
 // Client-side search filtering
 const filteredSongs = computed(() => {
   let list = libraryStore.songs
 
   if (activeFilter.value === 'favorites') {
     list = list.filter(s => s.favorite)
-  } else if (activeFilter.value === 'playlists' && activePlaylistId.value) {
-    const p = libraryStore.playlists.find(pl => pl.id === activePlaylistId.value)
-    if (p) {
-      list = p.songs.map(ps => {
-         return libraryStore.songs.find(s => s.id === ps.originalId) || { ...ps, id: ps.originalId }
-      }).filter(s => s) as any[]
+  } else if (activeFilter.value === 'playlists') {
+    if (activePlaylistId.value) {
+      const p = libraryStore.playlists.find(pl => pl.id === activePlaylistId.value)
+      if (p) {
+        list = p.songs.map(ps => {
+           return libraryStore.songs.find(s => s.id === ps.originalId) || { ...ps, id: ps.originalId }
+        }).filter(s => s) as any[]
+      } else {
+        list = []
+      }
+    } else {
+      list = []
+    }
+  } else if (activeFilter.value === 'artists') {
+    if (activeArtistId.value) {
+      const a = libraryStore.artists.find(art => art.id === activeArtistId.value)
+      if (a) {
+        list = list.filter(s => s.artist.toLowerCase() === a.name.toLowerCase())
+      } else {
+        list = []
+      }
+    } else {
+      list = []
     }
   }
 
@@ -145,6 +170,9 @@ const handleLogout = async () => {
     console.error('Logout error:', err)
   }
 }
+
+import ArtistModal from '@/components/ArtistModal.vue'
+
 
 
 </script>
@@ -262,10 +290,10 @@ const handleLogout = async () => {
       <div class="flex flex-col sm:flex-row gap-4 mb-6">
         <div class="flex items-center border-2 border-coffee rounded-xl overflow-hidden bg-cream shrink-0">
           <button
-            @click="activeFilter = 'all'"
-            :class="['px-4 py-2 w-full font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'all' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
+            @click="activeFilter = 'artists'"
+            :class="['px-4 py-2 w-full font-roboto text-xs font-bold uppercase transition-colors cursor-pointer', activeFilter === 'artists' ? 'bg-mustard text-cream' : 'text-coffee hover:bg-paper']"
           >
-            Todas
+            Artistas
           </button>
           <button
             @click="activeFilter = 'favorites'"
@@ -284,13 +312,31 @@ const handleLogout = async () => {
         <div v-if="activeFilter === 'playlists'" class="">
           <select 
             v-model="activePlaylistId"
-            class="w-full sm:w-auto pl-4 pr-10 py-2 bg-paper border-2 border-coffee rounded-xl font-roboto text-sm text-petrol outline-none focus:border-mustard cursor-pointer appearance-none"
+            class="px-4 py-2 bg-cream border-2 border-coffee rounded-xl font-roboto text-xs font-bold text-petrol outline-none w-full sm:w-auto min-w-[200px]"
           >
-            <option disabled value="">Selecciona una lista...</option>
+            <option value="">Selecciona una Lista...</option>
             <option v-for="pl in libraryStore.playlists" :key="pl.id" :value="pl.id">
-              {{ pl.name }}
+              {{ pl.name }} ({{ pl.songs.length }})
             </option>
           </select>
+        </div>
+
+        <div v-if="activeFilter === 'artists'" class="flex flex-col sm:flex-row gap-2">
+          <select 
+            v-model="activeArtistId"
+            class="px-4 py-2 bg-cream border-2 border-coffee rounded-xl font-roboto text-xs font-bold text-petrol outline-none w-full sm:w-auto min-w-[200px]"
+          >
+            <option value="">Selecciona un Artista...</option>
+            <option v-for="artist in libraryStore.artists" :key="artist.id" :value="artist.id">
+              {{ artist.name }}
+            </option>
+          </select>
+          <button 
+            @click="showArtistModal = true"
+            class="px-4 py-2 bg-mustard text-cream rounded-xl font-roboto text-xs font-bold uppercase border-2 border-coffee hover:bg-terracotta transition-colors shadow-[2px_2px_0px_0px_rgba(92,61,46,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 cursor-pointer"
+          >
+            + Nuevo Artista
+          </button>
         </div>
       </div>
 
@@ -332,6 +378,11 @@ const handleLogout = async () => {
         </button>
       </div>
     </div>
+    <!-- Artists Modal -->
+    <ArtistModal 
+      :is-open="showArtistModal" 
+      @close="showArtistModal = false" 
+    />
   </div>
 </template>
 

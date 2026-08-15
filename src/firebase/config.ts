@@ -86,3 +86,13 @@ export interface Playlist {
   songs: PlaylistSongRef[];   // List of songs inside the playlist
   createdAt: Timestamp;       // Date and time when the playlist was created
 }
+
+/**
+ * Artist Model
+ * Path: users/{uid}/artists/{artistId}
+ */
+export interface Artist {
+  id: string;
+  name: string;
+  createdAt: Timestamp;
+}

@@ -80,7 +80,7 @@ export function useRetroCast() {
     }
   }
 
-  const handleFolderSelect = (e: Event) => {
+  const handleFolderSelect = async (e: Event) => {
     const target = e.target as HTMLInputElement
     if (target.files && target.files.length > 0) {
       const filesList = Array.from(target.files)
@@ -98,7 +98,32 @@ export function useRetroCast() {
 
       audioFiles.sort((a, b) => a.name.localeCompare(b.name))
 
-      localSongs.value = audioFiles
+      errorMessage.value = 'Comprimiendo archivos de audio...'
+      
+      try {
+        const { useAudioCompression } = await import('@/composables/useAudioCompression')
+        const { compressPlaylist } = useAudioCompression()
+        const songsToCompress = audioFiles.map((file, idx) => ({
+          id: idx,
+          title: file.name,
+          artist: 'Local',
+          file
+        }))
+        const compressedSongs = await compressPlaylist(songsToCompress)
+        
+        const finalFiles = compressedSongs.map((c, i) => {
+          if (c.status === 'success') {
+             return new File([c.compressedFile], audioFiles[i].name, { type: audioFiles[i].type })
+          }
+          return audioFiles[i]
+        })
+        
+        localSongs.value = finalFiles as File[]
+      } catch (err) {
+         console.warn('Compression failed for playlist', err)
+         localSongs.value = audioFiles
+      }
+
       errorMessage.value = null
       
       const firstFile = audioFiles[0]

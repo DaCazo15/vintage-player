@@ -1,9 +1,21 @@
 /**
  * EXPERIMENTAL: Este composable depende de un backend FastAPI externo 
- * que no está incluido en este repositorio. Actualmente no está conectado 
- * a ningún flujo de la UI principal.
  */
 import { ref, computed } from 'vue'
+
+export interface CompressionRequestMetadata {
+  id: string | number;
+  nombre: string;
+  formato_origen: string;
+}
+
+export interface CompressionResponse {
+  id: string | number;
+  nombre: string;
+  url_descarga?: string;
+  estado: 'exito' | 'error';
+  mensaje?: string;
+}
 
 export interface SongToCompress {
   id: number | string
@@ -19,6 +31,7 @@ export interface CompressedSong {
   compressedFile: Blob
   status: 'success' | 'error'
   errorMessage?: string
+  responseJson?: CompressionResponse
 }
 
 export type CompressionStatus = 'pending' | 'compressing' | 'success' | 'error'
@@ -28,7 +41,6 @@ export function useAudioCompression() {
   const totalSongs = ref(0)
   const completedSongs = ref(0)
   
-  // Guardamos el estado de compresión de cada canción por su ID
   const compressionStatuses = ref<Record<string | number, CompressionStatus>>({})
 
   // URL base de FastAPI: Prioriza variable de entorno, luego localhost
@@ -39,18 +51,19 @@ export function useAudioCompression() {
     return Math.round((completedSongs.value / totalSongs.value) * 100)
   })
 
-  /**
-   * Comprime una sola canción enviándola al backend FastAPI.
-   * Asume que el endpoint es POST /api/audio/compress y recibe un FormData
-   */
   async function compressSingleSong(song: SongToCompress): Promise<CompressedSong> {
     compressionStatuses.value[song.id] = 'compressing'
     
     try {
       const formData = new FormData()
-      formData.append('id', String(song.id))
-      formData.append('name', song.title)
-      formData.append('artist', song.artist)
+      
+      const metadata: CompressionRequestMetadata = {
+        id: song.id,
+        nombre: song.title,
+        formato_origen: song.file.type || 'audio/mpeg'
+      }
+      
+      formData.append('metadata', JSON.stringify(metadata))
       formData.append('file', song.file)
 
       const response = await fetch(`${API_BASE_URL}/api/audio/compress`, {
@@ -62,27 +75,30 @@ export function useAudioCompression() {
         throw new Error(`Error HTTP: ${response.status} - ${response.statusText}`)
       }
 
-      // Verificamos si la respuesta es el blob directamente (audio) o un JSON con URL
       const contentType = response.headers.get('content-type') || ''
       let compressedBlob: Blob
+      let responseJson: CompressionResponse | undefined
 
       if (contentType.includes('application/json')) {
-        const jsonResponse = await response.json()
-        if (jsonResponse.status === 'error') {
-          throw new Error(jsonResponse.errorMessage || 'Error en la compresión backend')
+        responseJson = await response.json()
+        if (responseJson?.estado === 'error') {
+          throw new Error(responseJson.mensaje || 'Error en la compresión backend')
         }
         
-        // Si devuelve una URL para descargar el archivo comprimido
-        if (jsonResponse.compressed_url) {
-          const fileResponse = await fetch(jsonResponse.compressed_url)
+        if (responseJson?.url_descarga) {
+          const fileResponse = await fetch(responseJson.url_descarga)
           if (!fileResponse.ok) throw new Error('No se pudo descargar el archivo comprimido desde la URL')
           compressedBlob = await fileResponse.blob()
         } else {
-          throw new Error('Respuesta JSON del backend no incluye URL de descarga ni archivo')
+          throw new Error('Respuesta JSON del backend no incluye URL de descarga')
         }
       } else {
-        // Asumimos que la respuesta ES el binario de audio directamente
         compressedBlob = await response.blob()
+        responseJson = {
+          id: song.id,
+          nombre: song.title,
+          estado: 'exito'
+        }
       }
 
       compressionStatuses.value[song.id] = 'success'
@@ -91,7 +107,8 @@ export function useAudioCompression() {
         title: song.title,
         artist: song.artist,
         compressedFile: compressedBlob,
-        status: 'success'
+        status: 'success',
+        responseJson
       }
 
     } catch (error: any) {
@@ -101,19 +118,19 @@ export function useAudioCompression() {
         id: song.id,
         title: song.title,
         artist: song.artist,
-        // Usamos el archivo original como fallback si falla la compresión
         compressedFile: song.file,
         status: 'error',
-        errorMessage: error.message || 'Error desconocido durante la compresión'
+        errorMessage: error.message || 'Error desconocido durante la compresión',
+        responseJson: {
+          id: song.id,
+          nombre: song.title,
+          estado: 'error',
+          mensaje: error.message || 'Error desconocido'
+        }
       }
     }
   }
 
-  /**
-   * Toma una lista de canciones y las comprime controlando la concurrencia.
-   * @param songs Lista de canciones a comprimir
-   * @param concurrency Máximo número de canciones a procesar al mismo tiempo
-   */
   async function compressPlaylist(songs: SongToCompress[], concurrency: number = 2): Promise<CompressedSong[]> {
     isCompressing.value = true
     totalSongs.value = songs.length
@@ -124,7 +141,6 @@ export function useAudioCompression() {
 
     const results: CompressedSong[] = []
     
-    // Función auxiliar para procesar en chunks paralelos controlados
     const queue = [...songs]
     const workers = Array(concurrency).fill(null).map(async () => {
       while (queue.length > 0) {
@@ -139,7 +155,6 @@ export function useAudioCompression() {
 
     isCompressing.value = false
     
-    // Ordenamos los resultados para mantener el orden original del array de entrada
     return results.sort((a, b) => {
       const idxA = songs.findIndex(s => s.id === a.id)
       const idxB = songs.findIndex(s => s.id === b.id)
@@ -155,14 +170,11 @@ export function useAudioCompression() {
   }
 
   return {
-    // Estado
     isCompressing,
     progress,
     totalSongs,
     completedSongs,
     compressionStatuses,
-    
-    // Métodos
     compressSingleSong,
     compressPlaylist,
     resetCompressionState
